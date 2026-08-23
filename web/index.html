@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guitar Pro Reader & Visualizer - Human-Readable Tab & Score Converter</title>
+    <meta name="description" content="A modern, high-fidelity Guitar Pro (.gp, .gpx, .gpif) reader that converts files into human-readable ASCII tabs, ChordPro lead sheets, UMS JSON, and interactive playable scores.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- External Libraries (JSZip & AlphaTab) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/alphaTab.js"></script>
+
+    <!-- App Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <div id="app" class="app-layout">
+        
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="logo-icon">🎸</div>
+                <div>
+                    <h1 class="logo-title">Guitar Pro <span class="gradient-text">Reader</span></h1>
+                    <p class="logo-subtitle">Convert .gp, .gpx & .gpif into human-readable formats</p>
+                </div>
+            </div>
+
+            <!-- Preset / Sample Loader -->
+            <div class="header-samples">
+                <span class="sample-label">Try Samples:</span>
+                <button id="btn-sample-acoustic" class="btn btn-secondary btn-sm" title="Load Acoustic Fingerstyle sample">
+                    <span class="btn-icon">🌾</span> Acoustic Horizon
+                </button>
+                <button id="btn-sample-rock" class="btn btn-secondary btn-sm" title="Load Electric Rock Riff sample">
+                    <span class="btn-icon">⚡</span> Neon Overdrive
+                </button>
+                <button id="btn-sample-rector" class="btn btn-secondary btn-sm" title="Load Love Like This by Ben Rector">
+                    <span class="btn-icon">❤️</span> Love Like This
+                </button>
+            </div>
+
+            <!-- File Upload Action -->
+            <div class="header-actions">
+                <label for="file-input" class="btn btn-primary" id="upload-btn">
+                    <span class="btn-icon">📂</span> Open Score / File
+                </label>
+                <input type="file" id="file-input" accept=".gp,.gpx,.gp3,.gp4,.gp5,.gpif,.xml,.json,.pdf" class="visually-hidden">
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="app-main">
+            
+            <!-- Drag and Drop Dropzone (Hidden when file loaded, or overlay on drag) -->
+            <div id="drop-overlay" class="drop-overlay visually-hidden">
+                <div class="drop-overlay-content">
+                    <span class="drop-icon">🎼</span>
+                    <h3>Drop Guitar Pro, Score, or PDF File Here</h3>
+                    <p>Supports .gp, .gpx, .gp5, .gp4, .gp3, .gpif, .xml, .json, and .pdf files</p>
+                </div>
+            </div>
+
+            <!-- Song Info Bar -->
+            <section id="song-info-bar" class="song-info-bar">
+                <div class="song-metadata">
+                    <div class="song-title-group">
+                        <h2 id="song-title" class="song-title">Acoustic Horizon</h2>
+                        <span id="song-artist" class="badge badge-artist">Cadence Ensemble</span>
+                        <span id="song-album" class="badge badge-album">Guitar Pro Showcase</span>
+                    </div>
+                    <div class="song-badges">
+                        <span class="badge badge-info" id="badge-key">Key: D</span>
+                        <span class="badge badge-info" id="badge-tempo">⏱ 76 BPM</span>
+                        <span class="badge badge-info" id="badge-time">4/4</span>
+                        <span class="badge badge-info" id="badge-tuning">Tuning: E2 A2 D3 G3 B3 E4</span>
+                        <span class="badge badge-info" id="badge-capo">Capo: 0</span>
+                        <span class="badge badge-info" id="badge-strum" style="display:none">Strumming</span>
+                        <span class="badge badge-tracks" id="badge-track-count">1 Track</span>
+                    </div>
+                </div>
+
+                <!-- Track Selector & Global Actions -->
+                <div class="track-toolbar">
+                    <div class="track-select-wrapper">
+                        <label for="track-select">Active Track:</label>
+                        <select id="track-select" class="form-select"></select>
+                    </div>
+                    <div class="quick-export-actions">
+                        <button id="btn-copy-view" class="btn btn-ghost btn-sm" title="Copy current view to clipboard">
+                            📋 Copy
+                        </button>
+                        <button id="btn-download-view" class="btn btn-ghost btn-sm" title="Download formatted file">
+                            💾 Download
+                        </button>
+                        <button id="btn-print-view" class="btn btn-ghost btn-sm" title="Print score or tab">
+                            🖨 Print
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Navigation Tabs -->
+            <nav class="view-tabs" role="tablist" aria-label="Format views">
+                <button class="tab-btn active" data-target="view-visual" role="tab" id="tab-visual" aria-selected="true">
+                    🎼 Visual Score & Tab
+                </button>
+                <button class="tab-btn" data-target="view-ascii" role="tab" id="tab-ascii" aria-selected="false">
+                    📝 ASCII Tablature
+                </button>
+                <button class="tab-btn" data-target="view-chordpro" role="tab" id="tab-chordpro" aria-selected="false">
+                    📑 Lead Sheet (ChordPro)
+                </button>
+                <button class="tab-btn" data-target="view-summary" role="tab" id="tab-summary" aria-selected="false">
+                    📊 Song Summary & Chords
+                </button>
+                <button class="tab-btn" data-target="view-ums" role="tab" id="tab-ums" aria-selected="false">
+                    🧬 UMS / JSON Data
+                </button>
+                <button class="tab-btn" data-target="view-xml" role="tab" id="tab-xml" aria-selected="false">
+                    🔍 Raw GPIF XML
+                </button>
+            </nav>
+
+            <!-- Views Container -->
+            <div class="view-contents">
+                
+                <!-- 1. Visual Score & Tab View (AlphaTab) -->
+                <section id="view-visual" class="tab-pane active" role="tabpanel">
+                    <!-- Playback & Score Controls -->
+                    <div class="alphatab-controls">
+                        <div class="playback-btn-group">
+                            <button id="at-btn-play" class="btn btn-primary btn-icon-only" title="Play/Pause">
+                                <span class="at-icon-play">▶</span>
+                            </button>
+                            <button id="at-btn-stop" class="btn btn-secondary btn-icon-only" title="Stop">
+                                ⏹
+                            </button>
+                            <div class="playback-timer">
+                                <span id="at-timer-current">0:00</span> / <span id="at-timer-total">0:00</span>
+                                <span class="bar-counter" id="at-bar-counter">Bar 1</span>
+                            </div>
+                        </div>
+
+                        <div class="score-display-settings">
+                            <div class="control-item">
+                                <label for="at-stave-mode">Stave:</label>
+                                <select id="at-stave-mode" class="form-select form-select-sm">
+                                    <option value="score-tab" selected>Score & Tab</option>
+                                    <option value="tab">Tab Only</option>
+                                    <option value="score">Score Only</option>
+                                </select>
+                            </div>
+                            <div class="control-item">
+                                <label for="at-layout-mode">Layout:</label>
+                                <select id="at-layout-mode" class="form-select form-select-sm">
+                                    <option value="page" selected>Page</option>
+                                    <option value="horizontal">Horizontal</option>
+                                </select>
+                            </div>
+                            <div class="control-item">
+                                <label for="at-zoom-level">Zoom:</label>
+                                <select id="at-zoom-level" class="form-select form-select-sm">
+                                    <option value="75">75%</option>
+                                    <option value="100" selected>100%</option>
+                                    <option value="125">125%</option>
+                                    <option value="150">150%</option>
+                                </select>
+                            </div>
+                            <div class="control-item">
+                                <label for="at-speed-slider">Speed (<span id="at-speed-label">100%</span>):</label>
+                                <input type="range" id="at-speed-slider" min="50" max="150" value="100" class="form-range">
+                            </div>
+                            <button id="at-btn-metronome" class="btn btn-ghost btn-sm" title="Toggle Metronome">
+                                🔔 Metronome
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- AlphaTab Render Viewport -->
+                    <div class="alphatab-viewport">
+                        <div id="alphatab-container"></div>
+                    </div>
+                </section>
+
+                <!-- 2. ASCII Tablature View -->
+                <section id="view-ascii" class="tab-pane" role="tabpanel">
+                    <div class="pane-toolbar">
+                        <div class="toolbar-left">
+                            <span class="pane-title">Monospace ASCII Tablature</span>
+                            <span class="pane-hint">Clean measure-by-measure text tab with chords and articulations</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <label for="ascii-wrap-select">Bars per row:</label>
+                            <select id="ascii-wrap-select" class="form-select form-select-sm">
+                                <option value="1">1 Bar</option>
+                                <option value="2" selected>2 Bars</option>
+                                <option value="3">3 Bars</option>
+                                <option value="4">4 Bars</option>
+                            </select>
+                            <button id="btn-copy-ascii" class="btn btn-secondary btn-sm">📋 Copy ASCII Tab</button>
+                            <button id="btn-download-ascii" class="btn btn-primary btn-sm">💾 Download .txt</button>
+                        </div>
+                    </div>
+                    <div class="code-container">
+                        <pre id="ascii-tab-output" class="tab-code-block"></pre>
+                    </div>
+                </section>
+
+                <!-- 3. Lead Sheet (ChordPro) View -->
+                <section id="view-chordpro" class="tab-pane" role="tabpanel">
+                    <div class="pane-toolbar">
+                        <div class="toolbar-left">
+                            <span class="pane-title">ChordPro Lead Sheet</span>
+                            <span class="pane-hint">Standard chord chart with sections, tempo, and capo directives</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <button id="btn-copy-chordpro" class="btn btn-secondary btn-sm">📋 Copy ChordPro</button>
+                            <button id="btn-download-chordpro" class="btn btn-primary btn-sm">💾 Download .chordpro</button>
+                        </div>
+                    </div>
+                    <div class="chordpro-grid">
+                        <div class="chordpro-preview-card">
+                            <h3>Formatted Lead Sheet</h3>
+                            <div id="chordpro-rendered" class="chordpro-rendered-content"></div>
+                        </div>
+                        <div class="chordpro-raw-card">
+                            <h3>Raw ChordPro Text</h3>
+                            <pre id="chordpro-raw-output" class="code-block"></pre>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 4. Song Summary & Chords View -->
+                <section id="view-summary" class="tab-pane" role="tabpanel">
+                    <div class="summary-layout">
+                        <!-- Left Column: Details & Tracks -->
+                        <div class="summary-main">
+                            <div class="card summary-card">
+                                <h3>Song Metadata</h3>
+                                <div id="summary-meta-grid" class="meta-grid"></div>
+                            </div>
+
+                            <div class="card summary-card">
+                                <h3>Instrumentation & Tracks</h3>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="summary-tracks-table">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Track Name</th>
+                                                <th>Tuning</th>
+                                                <th>Capo</th>
+                                                <th>Strings</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="card summary-card">
+                                <h3>Timeline & Section Structure</h3>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="summary-sections-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Section</th>
+                                                <th>Start Bar</th>
+                                                <th>Time Signature</th>
+                                                <th>Notes / Details</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Chord Dictionary -->
+                        <div class="summary-sidebar">
+                            <div class="card summary-card">
+                                <h3>Chord Dictionary</h3>
+                                <p class="card-subtitle">Detected chords & fretboard shapes</p>
+                                <div id="summary-chords-grid" class="chord-diagrams-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 5. UMS / JSON Data View -->
+                <section id="view-ums" class="tab-pane" role="tabpanel">
+                    <div class="pane-toolbar">
+                        <div class="toolbar-left">
+                            <span class="pane-title">Unified Music Schema (UMS) SongGraph</span>
+                            <span class="pane-hint">Standardized JSON domain model for performance and tab integration</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <button id="btn-copy-ums" class="btn btn-secondary btn-sm">📋 Copy JSON</button>
+                            <button id="btn-download-ums" class="btn btn-primary btn-sm">💾 Download .json</button>
+                        </div>
+                    </div>
+                    <div class="code-container">
+                        <pre id="ums-json-output" class="code-block json-code"></pre>
+                    </div>
+                </section>
+
+                <!-- 6. Raw GPIF XML View -->
+                <section id="view-xml" class="tab-pane" role="tabpanel">
+                    <div class="pane-toolbar">
+                        <div class="toolbar-left">
+                            <span class="pane-title">score.gpif XML Inspector</span>
+                            <span class="pane-hint">Direct XML relational graph extracted from the Guitar Pro container</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <input type="text" id="xml-search-input" placeholder="Search XML..." class="form-input form-input-sm">
+                            <button id="btn-copy-xml" class="btn btn-secondary btn-sm">📋 Copy XML</button>
+                        </div>
+                    </div>
+                    <div class="code-container">
+                        <pre id="xml-raw-output" class="code-block xml-code"></pre>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Guitar Pro Reader & Visualizer • Powered by alphaTab & JSZip • Supports .gp, .gpx, .gp5, .gp4, .gp3, .gpif</p>
+        </footer>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <!-- Application Script -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
