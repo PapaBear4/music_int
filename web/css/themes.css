@@ -1,0 +1,185 @@
+/* ==========================================================================
+   Themes - Studio Light (Default), Warm Parchment, Nordic Slate, Monochrome
+   All color tokens are mapped semantically to make theming instantaneous.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Studio Light (Default Theme) - Clean, crisp, high-contrast modern UI
+   -------------------------------------------------------------------------- */
+:root,
+body.theme-light {
+    /* Backgrounds */
+    --bg-page: #f8fafc;              /* Soft slate-white canvas */
+    --bg-surface: #ffffff;           /* Clean white card surface */
+    --bg-surface-elevated: #ffffff;  /* Modal / dropdown surface */
+    --bg-surface-alt: #f1f5f9;       /* Secondary item background */
+    --bg-overlay: rgba(15, 23, 42, 0.4); /* Backdrop overlay */
+
+    /* Typography */
+    --text-main: #0f172a;            /* Deep slate 900 */
+    --text-muted: #64748b;           /* Slate 500 */
+    --text-subtle: #94a3b8;          /* Slate 400 */
+    --text-inverse: #ffffff;         /* White on dark buttons */
+
+    /* Borders */
+    --border-main: #e2e8f0;          /* Clean slate border */
+    --border-subtle: #f1f5f9;        /* Subtle divider */
+    --border-focus: #6366f1;         /* Indigo focus ring */
+
+    /* Brand / Accent Colors */
+    --accent-primary: #4f46e5;       /* Royal Indigo 600 */
+    --accent-hover: #4338ca;         /* Indigo 700 */
+    --accent-subtle: #e0e7ff;        /* Indigo 100 badge bg */
+    --accent-text: #3730a3;          /* Indigo 800 badge text */
+
+    /* Status Colors */
+    --color-success: #059669;        /* Emerald 600 */
+    --color-success-bg: #d1fae5;     /* Emerald 100 */
+    --color-warning: #d97706;        /* Amber 600 */
+    --color-warning-bg: #fef3c7;     /* Amber 100 */
+    --color-info: #0284c7;           /* Sky 600 */
+    --color-info-bg: #e0f2fe;        /* Sky 100 */
+
+    /* Monospace / Code Elements */
+    --code-bg: #f8fafc;
+    --code-border: #cbd5e1;
+    --code-text: #1e293b;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+    --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+
+    /* AlphaTab Canvas Tint */
+    --alphatab-filter: none;
+}
+
+/* --------------------------------------------------------------------------
+   2. Warm Parchment / Acoustic Theme - Natural cream & espresso tones
+   -------------------------------------------------------------------------- */
+body.theme-warm {
+    --bg-page: #fbf8f2;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #ffffff;
+    --bg-surface-alt: #f4efe4;
+    --bg-overlay: rgba(44, 34, 25, 0.45);
+
+    --text-main: #29221d;
+    --text-muted: #786c5e;
+    --text-subtle: #aa9c8d;
+    --text-inverse: #ffffff;
+
+    --border-main: #e6ded3;
+    --border-subtle: #f0eae0;
+    --border-focus: #b45309;
+
+    --accent-primary: #b45309;       /* Warm Amber / Leather */
+    --accent-hover: #92400e;
+    --accent-subtle: #fef3c7;
+    --accent-text: #78350f;
+
+    --color-success: #15803d;
+    --color-success-bg: #dcfce7;
+    --color-warning: #c2410c;
+    --color-warning-bg: #ffedd5;
+    --color-info: #0369a1;
+    --color-info-bg: #e0f2fe;
+
+    --code-bg: #f9f5ee;
+    --code-border: #ded4c5;
+    --code-text: #2d241d;
+
+    --shadow-sm: 0 1px 2px rgba(60, 45, 30, 0.05);
+    --shadow-md: 0 4px 6px rgba(60, 45, 30, 0.07);
+    --shadow-lg: 0 10px 15px rgba(60, 45, 30, 0.08);
+    --shadow-modal: 0 20px 25px rgba(60, 45, 30, 0.14);
+
+    --alphatab-filter: sepia(0.1);
+}
+
+/* --------------------------------------------------------------------------
+   3. Nordic Slate (Modern Dark Theme) - Refined deep slate with electric blue
+   -------------------------------------------------------------------------- */
+body.theme-nordic {
+    --bg-page: #0f172a;
+    --bg-surface: #1e293b;
+    --bg-surface-elevated: #334155;
+    --bg-surface-alt: #0f172a;
+    --bg-overlay: rgba(0, 0, 0, 0.7);
+
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-subtle: #64748b;
+    --text-inverse: #0f172a;
+
+    --border-main: #334155;
+    --border-subtle: #1e293b;
+    --border-focus: #38bdf8;
+
+    --accent-primary: #38bdf8;       /* Sky Cyan */
+    --accent-hover: #0ea5e9;
+    --accent-subtle: rgba(56, 189, 248, 0.15);
+    --accent-text: #7dd3fc;
+
+    --color-success: #34d399;
+    --color-success-bg: rgba(52, 211, 153, 0.15);
+    --color-warning: #fbbf24;
+    --color-warning-bg: rgba(251, 191, 36, 0.15);
+    --color-info: #60a5fa;
+    --color-info-bg: rgba(96, 165, 250, 0.15);
+
+    --code-bg: #0b1120;
+    --code-border: #334155;
+    --code-text: #f1f5f9;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+    --shadow-modal: 0 20px 25px rgba(0, 0, 0, 0.6);
+
+    --alphatab-filter: invert(0.9) hue-rotate(180deg);
+}
+
+/* --------------------------------------------------------------------------
+   4. Monochrome Minimalist Theme - Black & White Sheet Music Style
+   -------------------------------------------------------------------------- */
+body.theme-mono {
+    --bg-page: #f5f5f5;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #ffffff;
+    --bg-surface-alt: #eaeaea;
+    --bg-overlay: rgba(0, 0, 0, 0.5);
+
+    --text-main: #000000;
+    --text-muted: #555555;
+    --text-subtle: #888888;
+    --text-inverse: #ffffff;
+
+    --border-main: #cccccc;
+    --border-subtle: #e5e5e5;
+    --border-focus: #000000;
+
+    --accent-primary: #111111;
+    --accent-hover: #333333;
+    --accent-subtle: #eeeeee;
+    --accent-text: #000000;
+
+    --color-success: #222222;
+    --color-success-bg: #e5e5e5;
+    --color-warning: #444444;
+    --color-warning-bg: #e5e5e5;
+    --color-info: #333333;
+    --color-info-bg: #e5e5e5;
+
+    --code-bg: #fafafa;
+    --code-border: #cccccc;
+    --code-text: #000000;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.12);
+    --shadow-modal: 0 20px 25px rgba(0, 0, 0, 0.2);
+
+    --alphatab-filter: grayscale(1);
+}

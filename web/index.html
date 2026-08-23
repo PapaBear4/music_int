@@ -11,48 +11,194 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
     
-    <!-- External Libraries (JSZip & AlphaTab) -->
+    <!-- External Libraries (JSZip, AlphaTab & PDF.js) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/alphaTab.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        }
+    </script>
 
     <!-- App Stylesheet -->
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="dark-theme">
+<body class="theme-light">
     <div id="app" class="app-layout">
         
         <!-- Header -->
         <header class="app-header">
-            <div class="header-brand">
-                <div class="logo-icon">🎸</div>
-                <div>
-                    <h1 class="logo-title">Guitar Pro <span class="gradient-text">Reader</span></h1>
-                    <p class="logo-subtitle">Convert .gp, .gpx & .gpif into human-readable formats</p>
+            <div class="header-left">
+                <a href="#" class="header-brand">
+                    <div class="logo-icon">🎸</div>
+                    <div>
+                        <h1 class="logo-title">Guitar Pro <span>Studio</span></h1>
+                        <p class="logo-subtitle">Universal Multi-Source Ingestion & Tab Visualizer</p>
+                    </div>
+                </a>
+
+                <!-- Preset / Sample Loader -->
+                <div class="header-samples">
+                    <span class="sample-label">Samples:</span>
+                    <button id="btn-sample-acoustic" class="btn btn-secondary btn-sm" title="Load Acoustic Fingerstyle sample">
+                        <span class="btn-icon">🌾</span> Acoustic
+                    </button>
+                    <button id="btn-sample-rock" class="btn btn-secondary btn-sm" title="Load Electric Rock Riff sample">
+                        <span class="btn-icon">⚡</span> Rock Riff
+                    </button>
+                    <button id="btn-sample-rector" class="btn btn-secondary btn-sm" title="Load Love Like This by Ben Rector">
+                        <span class="btn-icon">❤️</span> Love Like This
+                    </button>
                 </div>
             </div>
 
-            <!-- Preset / Sample Loader -->
-            <div class="header-samples">
-                <span class="sample-label">Try Samples:</span>
-                <button id="btn-sample-acoustic" class="btn btn-secondary btn-sm" title="Load Acoustic Fingerstyle sample">
-                    <span class="btn-icon">🌾</span> Acoustic Horizon
-                </button>
-                <button id="btn-sample-rock" class="btn btn-secondary btn-sm" title="Load Electric Rock Riff sample">
-                    <span class="btn-icon">⚡</span> Neon Overdrive
-                </button>
-                <button id="btn-sample-rector" class="btn btn-secondary btn-sm" title="Load Love Like This by Ben Rector">
-                    <span class="btn-icon">❤️</span> Love Like This
-                </button>
-            </div>
+            <!-- Header Actions & Theme Selector -->
+            <div class="header-right">
+                <!-- Theme Switcher -->
+                <div class="theme-selector-wrapper">
+                    <label for="theme-select" class="visually-hidden">Color Theme</label>
+                    <select id="theme-select" class="theme-select" title="Switch Color Theme">
+                        <option value="theme-light" selected>☀️ Studio Light</option>
+                        <option value="theme-warm">📜 Warm Parchment</option>
+                        <option value="theme-nordic">🌌 Nordic Slate</option>
+                        <option value="theme-mono">🎹 Monochrome</option>
+                    </select>
+                </div>
 
-            <!-- File Upload Action -->
-            <div class="header-actions">
-                <label for="file-input" class="btn btn-primary" id="upload-btn">
-                    <span class="btn-icon">📂</span> Open Score / File
+                <!-- Multi-Source Ingestion Modal Trigger -->
+                <button id="btn-open-ingest-modal" class="btn btn-primary" title="Open Multi-Source Ingestion Dashboard">
+                    <span class="btn-icon">✨</span> Multi-Source Ingest
+                </button>
+
+                <!-- Single File Open -->
+                <label for="file-input" class="btn btn-secondary" id="upload-btn" title="Quick open a single file">
+                    <span class="btn-icon">📂</span> Open File
                 </label>
                 <input type="file" id="file-input" accept=".gp,.gpx,.gp3,.gp4,.gp5,.gpif,.xml,.json,.pdf" class="visually-hidden">
             </div>
         </header>
+
+        <!-- Multi-Source Ingestion Modal -->
+        <div id="ingest-modal-backdrop" class="modal-backdrop">
+            <div class="modal-dialog" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+                <div class="modal-header">
+                    <div class="modal-title-group">
+                        <div class="modal-icon">✨</div>
+                        <div>
+                            <h2 id="modal-title" class="modal-title">Multi-Source Song Ingestion</h2>
+                            <p class="modal-subtitle">Combine Guitar Pro notes with PDF chords, vocals, and piano scores into a complete UMS</p>
+                        </div>
+                    </div>
+                    <button id="btn-close-ingest-modal" class="modal-close-btn" aria-label="Close modal">✕</button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- Master Drag & Drop Auto-Classifier Banner -->
+                    <div id="modal-batch-dropzone" class="batch-drop-banner">
+                        <div class="batch-drop-icon">📥</div>
+                        <div class="batch-drop-title">Drag & Drop All Song Files Here</div>
+                        <div class="batch-drop-subtitle">Drop your .gp file and any score / chord PDFs together — we'll auto-classify each slot!</div>
+                    </div>
+
+                    <!-- 4 Dedicated Source Slot Cards -->
+                    <div class="slots-grid">
+                        
+                        <!-- Slot 1: Primary Score (.gp) -->
+                        <div class="slot-card" id="slot-card-gp">
+                            <div class="slot-header">
+                                <div class="slot-title-group">
+                                    <span class="slot-icon">🎸</span>
+                                    <span class="slot-name">Guitar Pro Score</span>
+                                </div>
+                                <span class="slot-badge required">Primary</span>
+                            </div>
+                            <div class="slot-content" id="slot-content-gp">
+                                <div class="slot-placeholder-text">Drop .gp, .gpx, or .gpif file</div>
+                            </div>
+                            <div class="slot-actions">
+                                <label for="slot-input-gp" class="btn btn-secondary btn-sm">Browse</label>
+                                <input type="file" id="slot-input-gp" accept=".gp,.gpx,.gp3,.gp4,.gp5,.gpif,.xml" class="visually-hidden">
+                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="gp" style="display:none">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- Slot 2: Chord Sheet PDF -->
+                        <div class="slot-card" id="slot-card-chords">
+                            <div class="slot-header">
+                                <div class="slot-title-group">
+                                    <span class="slot-icon">📑</span>
+                                    <span class="slot-name">Chord Sheet / Lead PDF</span>
+                                </div>
+                                <span class="slot-badge optional">Key & Chords</span>
+                            </div>
+                            <div class="slot-content" id="slot-content-chords">
+                                <div class="slot-placeholder-text">Drop chords.pdf or lead sheet</div>
+                            </div>
+                            <div class="slot-actions">
+                                <label for="slot-input-chords" class="btn btn-secondary btn-sm">Browse</label>
+                                <input type="file" id="slot-input-chords" accept=".pdf,.txt,.chordpro" class="visually-hidden">
+                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="chords" style="display:none">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- Slot 3: Vocal Melody PDF -->
+                        <div class="slot-card" id="slot-card-vocals">
+                            <div class="slot-header">
+                                <div class="slot-title-group">
+                                    <span class="slot-icon">🎤</span>
+                                    <span class="slot-name">Vocal Melody PDF</span>
+                                </div>
+                                <span class="slot-badge optional">Lyrics & Milestones</span>
+                            </div>
+                            <div class="slot-content" id="slot-content-vocals">
+                                <div class="slot-placeholder-text">Drop vocals.pdf score</div>
+                            </div>
+                            <div class="slot-actions">
+                                <label for="slot-input-vocals" class="btn btn-secondary btn-sm">Browse</label>
+                                <input type="file" id="slot-input-vocals" accept=".pdf" class="visually-hidden">
+                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="vocals" style="display:none">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- Slot 4: Piano / Accompaniment Score PDF -->
+                        <div class="slot-card" id="slot-card-piano">
+                            <div class="slot-header">
+                                <div class="slot-title-group">
+                                    <span class="slot-icon">🎹</span>
+                                    <span class="slot-name">Piano Score PDF</span>
+                                </div>
+                                <span class="slot-badge optional">Dynamics</span>
+                            </div>
+                            <div class="slot-content" id="slot-content-piano">
+                                <div class="slot-placeholder-text">Drop piano.pdf score</div>
+                            </div>
+                            <div class="slot-actions">
+                                <label for="slot-input-piano" class="btn btn-secondary btn-sm">Browse</label>
+                                <input type="file" id="slot-input-piano" accept=".pdf" class="visually-hidden">
+                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="piano" style="display:none">Clear</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <div class="modal-footer-left">
+                        <button id="btn-load-bundle-sample" class="btn btn-secondary btn-sm" title="Load sample multi-file bundle for Love Like This">
+                            ✨ Load Ben Rector Multi-Source Bundle
+                        </button>
+                        <button id="btn-clear-all-slots" class="btn btn-ghost btn-sm">Clear All</button>
+                    </div>
+                    <div class="modal-footer-right">
+                        <button id="btn-cancel-ingest" class="btn btn-ghost">Cancel</button>
+                        <button id="btn-fuse-ums" class="btn btn-primary" disabled>
+                            <span class="btn-icon">⚡</span> Fuse & Build Complete UMS
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Main Content Area -->
         <main class="app-main">
