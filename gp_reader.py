@@ -348,12 +348,26 @@ class GuitarProScore:
                 pm = pm_str.lower() == 'true' if pm_str else False
                 stroke = self._prop(b, 'pickstroke')
 
+                # Lyrics and Dynamic
+                lyr_elem = self._child(b, 'lyrics')
+                lyrics_text = None
+                if lyr_elem is not None:
+                    lines = [(l.text or "").strip() for l in self._children(lyr_elem, 'line')]
+                    clean_lines = [l for l in lines if l]
+                    if clean_lines:
+                        lyrics_text = " ".join(clean_lines)
+
+                dyn_text = self._text(b, 'dynamic')
+                dynamic_val = dyn_text.lower() if dyn_text else None
+
                 self.beats[bid] = {
                     "id": bid,
                     "rhythm_ref": r_ref,
                     "note_ids": note_ids,
                     "chord": chord_name,
                     "text": text_val,
+                    "lyrics": lyrics_text,
+                    "dynamic": dynamic_val,
                     "palm_mute": pm,
                     "pick_stroke": stroke
                 }
@@ -374,7 +388,9 @@ class GuitarProScore:
                 bar_id = int(bar.attrib.get('id', len(self.bars)))
                 voices_text = self._text(bar, 'voices')
                 voice_ids = [int(x) for x in voices_text.split() if int(x) >= 0] if voices_text.strip() else []
-                self.bars[bar_id] = {"id": bar_id, "voice_ids": voice_ids}
+                clef_text = self._text(bar, 'clef')
+                clef_val = "bass" if clef_text and ("f" in clef_text.lower() or "bass" in clef_text.lower()) else "treble"
+                self.bars[bar_id] = {"id": bar_id, "voice_ids": voice_ids, "clef": clef_val}
 
         # 9. Masterbars
         mb_node = self._child(self.root, 'masterbars')
@@ -431,6 +447,7 @@ class GuitarProScore:
             bar_data = {
                 "measure_number": mb_idx + 1,
                 "time": mb["time"],
+                "clef": "treble",
                 "section": self.sections.get(mb["section_id"]) if mb["section_id"] is not None else None,
                 "beats": []
             }
@@ -438,23 +455,27 @@ class GuitarProScore:
             if track_idx < len(mb["bar_ids"]):
                 bar_id = mb["bar_ids"][track_idx]
                 bar_obj = self.bars.get(bar_id)
-                if bar_obj and bar_obj["voice_ids"]:
-                    # Primary voice 0
-                    v_id = bar_obj["voice_ids"][0]
-                    v_obj = self.voices.get(v_id)
-                    if v_obj:
-                        for b_id in v_obj["beat_ids"]:
-                            b_obj = self.beats.get(b_id)
-                            if b_obj:
-                                beat_info = {
-                                    "id": b_id,
-                                    "rhythm": self.rhythms.get(b_obj["rhythm_ref"], {}),
-                                    "chord": b_obj["chord"],
-                                    "text": b_obj["text"],
-                                    "palm_mute": b_obj["palm_mute"],
-                                    "notes": [self.notes.get(n_id) for n_id in b_obj["note_ids"] if n_id in self.notes]
-                                }
-                                bar_data["beats"].append(beat_info)
+                if bar_obj:
+                    bar_data["clef"] = bar_obj.get("clef", "treble")
+                    if bar_obj["voice_ids"]:
+                        # Primary voice 0
+                        v_id = bar_obj["voice_ids"][0]
+                        v_obj = self.voices.get(v_id)
+                        if v_obj:
+                            for b_id in v_obj["beat_ids"]:
+                                b_obj = self.beats.get(b_id)
+                                if b_obj:
+                                    beat_info = {
+                                        "id": b_id,
+                                        "rhythm": self.rhythms.get(b_obj["rhythm_ref"], {}),
+                                        "chord": b_obj["chord"],
+                                        "text": b_obj["text"],
+                                        "lyrics": b_obj.get("lyrics"),
+                                        "dynamic": b_obj.get("dynamic"),
+                                        "palm_mute": b_obj["palm_mute"],
+                                        "notes": [self.notes.get(n_id) for n_id in b_obj["note_ids"] if n_id in self.notes]
+                                    }
+                                    bar_data["beats"].append(beat_info)
 
             result_bars.append(bar_data)
         return result_bars
@@ -693,7 +714,15 @@ class GuitarProScore:
         return "\n".join(lines)
 
     def to_ums_json(self) -> Dict[str, Any]:
-        """Converts score into Unified Music Schema (UMS) SongGraph JSON."""
+        """Converts score into Unified Music Schema (UMS) SongGraph JSON with complete tri-layer structure."""
+        primary_track = self.tracks[0] if self.tracks else {
+            "id": 0, "name": "Primary", "tuning_names": ["E2", "A2", "D3", "G3", "B3", "E4"],
+            "tuning_pitches": [40, 45, 50, 55, 59, 64], "capo": 0, "string_count": 6
+        }
+        tuning_pitches = primary_track.get("tuning_pitches", [40, 45, 50, 55, 59, 64])
+        string_count = len(tuning_pitches)
+        capo = primary_track.get("capo", 0)
+
         # Build structure maps
         structure_blocks = []
         current_block = {
@@ -720,35 +749,89 @@ class GuitarProScore:
                     "measures": []
                 }
 
-            # Build measure events
+            # Build measure events with complete tri-layer model
             events = []
+            cur_beat_division = 1.0
+            clef_val = b.get("clef", "treble")
+
             for beat in b["beats"]:
+                rhythm_obj = beat.get("rhythm", {})
+                rhythm_name = rhythm_obj.get("note_value", "Quarter")
+                dur_base = {
+                    "Whole": 4.0, "Half": 2.0, "Quarter": 1.0, "Eighth": 0.5,
+                    "16th": 0.25, "Sixteenth": 0.25, "32nd": 0.125, "64th": 0.0625
+                }.get(rhythm_name, 1.0)
+                if rhythm_obj.get("dots") == 1:
+                    dur_base *= 1.5
+                elif rhythm_obj.get("dots") == 2:
+                    dur_base *= 1.75
+                tuplet = rhythm_obj.get("tuplet")
+                if tuplet and len(tuplet) == 2 and tuplet[0] > 0:
+                    dur_base *= (tuplet[1] / tuplet[0])
+
                 chord = beat.get("chord")
+                lyric = beat.get("lyrics") or beat.get("text")
+                dyn = beat.get("dynamic") or "mf"
+
                 notes_tab = []
+                notes_notation = []
                 for n in beat.get("notes", []):
+                    s_idx = n.get("string", 0)
+                    fret_val = n.get("fret", 0)
                     notes_tab.append({
-                        "string": n["string"],
-                        "fret": n["fret"],
+                        "string": s_idx,
+                        "fret": fret_val,
                         "hopo": n.get("hopo", False),
-                        "bend": n.get("bend")
+                        "bend": n.get("bend"),
+                        "slide": n.get("slide"),
+                        "vibrato": n.get("vibrato", False),
+                        "palm_mute": n.get("palm_mute", False)
                     })
-                events.append({
-                    "layer_a_chord": chord,
-                    "layer_b_tab": notes_tab if notes_tab else None,
-                    "rhythm": beat.get("rhythm", {}).get("note_value", "Quarter"),
-                    "palm_mute": beat.get("palm_mute", False)
-                })
+
+                    # Calculate MIDI Pitch & Concert Note Name
+                    t_idx = string_count - 1 - s_idx
+                    open_p = tuning_pitches[t_idx] if 0 <= t_idx < len(tuning_pitches) else 64
+                    midi_p = open_p + fret_val + capo
+                    pitch_str = midi_to_note_name(midi_p)
+                    notes_notation.append({
+                        "pitch": pitch_str,
+                        "midi_pitch": midi_p,
+                        "duration": rhythm_name,
+                        "dynamics": dyn
+                    })
+
+                event_obj = {
+                    "beat_division": round(cur_beat_division, 3),
+                    "layer_a": {
+                        "chord": chord,
+                        "lyrics": lyric
+                    },
+                    "layer_b": {
+                        "tab_positions": notes_tab,
+                        "rhythm": rhythm_name
+                    },
+                    "layer_c": {
+                        "clef": clef_val,
+                        "notes": notes_notation
+                    },
+                    "hard_fault": None
+                }
+                events.append(event_obj)
+                cur_beat_division += dur_base
 
             current_block["measures"].append({
+                "measure_index": b["measure_number"],
                 "measure_number": b["measure_number"],
                 "time_signature": b["time"],
-                "events": events
+                "events": events,
+                "musical_events": events
             })
 
         if current_block["measures"]:
             structure_blocks.append(current_block)
 
         song_graph = {
+            "schema_version": "1.1.0",
             "canonical": {
                 "title": self.metadata.get("title", "Untitled"),
                 "artist": self.metadata.get("artist", "Unknown"),
@@ -758,13 +841,93 @@ class GuitarProScore:
                 "original_time_signature": self.primary_time_signature,
                 "original_tuning": " ".join(self.tracks[0]["tuning_names"]) if self.tracks else "EADGBE",
                 "original_capo": self.tracks[0]["capo"] if self.tracks else 0,
-                "tags": ["guitar_pro", "tab"]
+                "tags": ["guitar_pro", "tab", "unified_music_schema"]
             },
             "tracks": self.tracks,
             "structure": structure_blocks,
+            "reconciliation_log": [],
             "requires_agent_intervention": False
         }
         return song_graph
+
+
+def normalize_ums_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Forward-migrates any legacy or flat UMS payload into the standardized tri-layer schema.
+    """
+    if not isinstance(payload, dict):
+        return payload
+
+    canonical = payload.get("canonical", {})
+    tuning_str = canonical.get("original_tuning", "E2 A2 D3 G3 B3 E4")
+    capo = canonical.get("original_capo", 0)
+
+    # Standard default tuning pitches
+    tuning_pitches = [40, 45, 50, 55, 59, 64]
+
+    structure = payload.get("structure", [])
+    for block in structure:
+        for measure in block.get("measures", []):
+            raw_events = measure.get("musical_events") or measure.get("events") or []
+            normalized_events = []
+            cur_beat = 1.0
+
+            for ev in raw_events:
+                # Check if already canonical
+                if "layer_a" in ev and "layer_b" in ev and "layer_c" in ev:
+                    normalized_events.append(ev)
+                    continue
+
+                # Migrate legacy flat keys
+                chord_val = ev.get("layer_a_chord") or ev.get("chord")
+                lyric_val = ev.get("text") or ev.get("lyrics")
+                rhythm_val = ev.get("rhythm", "Quarter")
+                dur_base = {
+                    "Whole": 4.0, "Half": 2.0, "Quarter": 1.0, "Eighth": 0.5,
+                    "16th": 0.25, "Sixteenth": 0.25, "32nd": 0.125, "64th": 0.0625
+                }.get(rhythm_val, 1.0)
+
+                tab_positions = ev.get("layer_b_tab") or ev.get("tab_positions") or []
+                notes_notation = []
+                for tp in tab_positions:
+                    s_idx = tp.get("string", 0)
+                    f_val = tp.get("fret", 0)
+                    t_idx = len(tuning_pitches) - 1 - s_idx
+                    open_p = tuning_pitches[t_idx] if 0 <= t_idx < len(tuning_pitches) else 64
+                    midi_p = open_p + f_val + capo
+                    notes_notation.append({
+                        "pitch": midi_to_note_name(midi_p),
+                        "midi_pitch": midi_p,
+                        "duration": rhythm_val,
+                        "dynamics": "mf"
+                    })
+
+                beat_div = ev.get("beat_division") or round(cur_beat, 3)
+
+                norm_ev = {
+                    "beat_division": beat_div,
+                    "layer_a": {
+                        "chord": chord_val,
+                        "lyrics": lyric_val
+                    },
+                    "layer_b": {
+                        "tab_positions": tab_positions,
+                        "rhythm": rhythm_val
+                    },
+                    "layer_c": {
+                        "clef": "treble",
+                        "notes": notes_notation
+                    },
+                    "hard_fault": ev.get("hard_fault")
+                }
+                normalized_events.append(norm_ev)
+                cur_beat += dur_base
+
+            measure["events"] = normalized_events
+            measure["musical_events"] = normalized_events
+
+    payload["schema_version"] = "1.1.0"
+    return payload
 
 
 def main():

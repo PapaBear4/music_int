@@ -318,7 +318,18 @@ export class GuitarProScoreModel {
                 const palmMute = pmStr ? pmStr.toLowerCase() === "true" : false;
                 const pickStroke = this._getProp(b, "pickstroke");
 
-                this.beats.set(id, { id, rhythmRef, noteIds, chord, text, palmMute, pickStroke });
+                // Lyrics & Dynamic
+                const lyrNode = this._findChild(b, "lyrics");
+                let lyrics = null;
+                if (lyrNode) {
+                    const lines = this._findChildren(lyrNode, "line");
+                    const cleanLines = lines.map(l => (l.textContent || "").trim()).filter(l => l.length > 0);
+                    if (cleanLines.length > 0) lyrics = cleanLines.join(" ");
+                }
+                const dynText = this._getText(b, "dynamic");
+                const dynamic = dynText ? dynText.toLowerCase() : null;
+
+                this.beats.set(id, { id, rhythmRef, noteIds, chord, text, lyrics, dynamic, palmMute, pickStroke });
             });
         }
 
@@ -342,7 +353,9 @@ export class GuitarProScoreModel {
                 const id = parseInt(bar.getAttribute("id") || `${idx}`, 10);
                 const voicesText = this._getText(bar, "voices");
                 const voiceIds = voicesText.trim() ? voicesText.trim().split(/\s+/).map(Number).filter(x => x >= 0) : [];
-                this.bars.set(id, { id, voiceIds });
+                const clefText = this._getText(bar, "clef");
+                const clef = clefText && (clefText.toLowerCase().includes("f") || clefText.toLowerCase().includes("bass")) ? "bass" : "treble";
+                this.bars.set(id, { id, voiceIds, clef });
             });
         }
 
@@ -375,6 +388,7 @@ export class GuitarProScoreModel {
             const barData = {
                 measureNumber: mbIdx + 1,
                 time: mb.time,
+                clef: "treble",
                 section: mb.sectionId !== null && this.sections.has(mb.sectionId) ? this.sections.get(mb.sectionId) : null,
                 beats: []
             };
@@ -382,25 +396,30 @@ export class GuitarProScoreModel {
             if (trackIdx < mb.barIds.length) {
                 const barId = mb.barIds[trackIdx];
                 const barObj = this.bars.get(barId);
-                if (barObj && barObj.voiceIds.length > 0) {
-                    const voiceId = barObj.voiceIds[0];
-                    const voiceObj = this.voices.get(voiceId);
-                    if (voiceObj) {
-                        voiceObj.beatIds.forEach(beatId => {
-                            const beatObj = this.beats.get(beatId);
-                            if (beatObj) {
-                                const beatInfo = {
-                                    id: beatId,
-                                    rhythm: this.rhythms.get(beatObj.rhythmRef) || { noteValue: "Quarter" },
-                                    chord: beatObj.chord,
-                                    text: beatObj.text,
-                                    palmMute: beatObj.palmMute,
-                                    pickStroke: beatObj.pickStroke,
-                                    notes: beatObj.noteIds.map(nId => this.notes.get(nId)).filter(Boolean)
-                                };
-                                barData.beats.push(beatInfo);
-                            }
-                        });
+                if (barObj) {
+                    barData.clef = barObj.clef || "treble";
+                    if (barObj.voiceIds.length > 0) {
+                        const voiceId = barObj.voiceIds[0];
+                        const voiceObj = this.voices.get(voiceId);
+                        if (voiceObj) {
+                            voiceObj.beatIds.forEach(beatId => {
+                                const beatObj = this.beats.get(beatId);
+                                if (beatObj) {
+                                    const beatInfo = {
+                                        id: beatId,
+                                        rhythm: this.rhythms.get(beatObj.rhythmRef) || { noteValue: "Quarter" },
+                                        chord: beatObj.chord,
+                                        text: beatObj.text,
+                                        lyrics: beatObj.lyrics,
+                                        dynamic: beatObj.dynamic,
+                                        palmMute: beatObj.palmMute,
+                                        pickStroke: beatObj.pickStroke,
+                                        notes: beatObj.noteIds.map(nId => this.notes.get(nId)).filter(Boolean)
+                                    };
+                                    barData.beats.push(beatInfo);
+                                }
+                            });
+                        }
                     }
                 }
             }

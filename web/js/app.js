@@ -57,6 +57,7 @@ class App {
         this.badgeTuning = document.getElementById("badge-tuning");
         this.badgeCapo = document.getElementById("badge-capo");
         this.badgeStrum = document.getElementById("badge-strum");
+        this.badgeReconciliation = document.getElementById("badge-reconciliation");
         this.badgeTrackCount = document.getElementById("badge-track-count");
         this.trackSelect = document.getElementById("track-select");
 
@@ -68,6 +69,8 @@ class App {
         this.summaryMetaGrid = document.getElementById("summary-meta-grid");
         this.summaryTracksTableBody = document.querySelector("#summary-tracks-table tbody");
         this.summarySectionsTableBody = document.querySelector("#summary-sections-table tbody");
+        this.summaryReconciliationCard = document.getElementById("summary-reconciliation-card");
+        this.summaryReconciliationTableBody = document.querySelector("#summary-reconciliation-table tbody");
         this.summaryChordsGrid = document.getElementById("summary-chords-grid");
         this.umsJsonOutput = document.getElementById("ums-json-output");
         this.xmlRawOutput = document.getElementById("xml-raw-output");
@@ -755,6 +758,8 @@ class App {
 
     renderHeader() {
         const s = this.currentScore;
+        if (!s) return;
+
         const title = s.canonical?.title || s.metadata?.title || s.metadata?.subTitle || s.metadata?.name || s.title || "Untitled";
         const artist = s.canonical?.artist || s.metadata?.artist || s.metadata?.music || s.metadata?.words || s.metadata?.author || s.metadata?.composer || s.artist || "Unknown Artist";
         const album = s.canonical?.album || s.metadata?.album || s.metadata?.collection || s.album || "Guitar Pro Archive";
@@ -784,6 +789,15 @@ class App {
                 this.badgeStrum.style.display = "inline-flex";
             } else {
                 this.badgeStrum.style.display = "none";
+            }
+        }
+        if (this.badgeReconciliation) {
+            const reconLog = this.currentUms?.reconciliation_log || [];
+            if (reconLog.length > 0) {
+                this.badgeReconciliation.textContent = `⚠️ ${reconLog.length} Discrepanc${reconLog.length === 1 ? 'y' : 'ies'} Reconciled`;
+                this.badgeReconciliation.style.display = "inline-flex";
+            } else {
+                this.badgeReconciliation.style.display = "none";
             }
         }
         const primaryTrack = s.tracks[0];
@@ -919,6 +933,26 @@ class App {
             });
         }
         this.summarySectionsTableBody.innerHTML = secRows.length > 0 ? secRows.join("") : `<tr><td colspan="4" style="color: var(--text-muted);">No section markers defined in score.</td></tr>`;
+
+        // Reconciliation Table
+        const reconLog = this.currentUms?.reconciliation_log || [];
+        if (this.summaryReconciliationCard && this.summaryReconciliationTableBody) {
+            if (reconLog.length > 0) {
+                this.summaryReconciliationCard.style.display = "block";
+                this.summaryReconciliationTableBody.innerHTML = reconLog.map(r => `
+                    <tr>
+                        <td><strong>Bar ${r.measure_number}</strong></td>
+                        <td>Beat ${r.beat_division}</td>
+                        <td><code>${r.type}</code></td>
+                        <td><span class="badge badge-secondary">${r.gp_value || "-"}</span></td>
+                        <td><span class="badge badge-info">${r.pdf_value || "-"}</span></td>
+                        <td><span style="color: var(--success, #10b981);">${r.resolution || "Resolved"}</span></td>
+                    </tr>
+                `).join("");
+            } else {
+                this.summaryReconciliationCard.style.display = "none";
+            }
+        }
 
         // Chord Dictionary
         const chords = s.canonical?.chords_detected || s.getAllChords();

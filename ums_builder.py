@@ -2,14 +2,44 @@
 """
 Unified Music Schema (UMS) Builder & Fusion Engine.
 Synthesizes Guitar Pro scores (.gp / .gpif) with PDF chord sheets and score metadata
-into the canonical UMS SongGraph data model.
+into the canonical UMS SongGraph data model with Layer A, Layer B, and Layer C.
 """
 
 import json
 from typing import Dict, List, Any, Optional
 
-from gp_reader import GuitarProScore
+from gp_reader import GuitarProScore, midi_to_note_name, normalize_ums_payload
 import pdf_extractor
+
+DURATIONS = {
+    "Whole": 4.0,
+    "Half": 2.0,
+    "Quarter": 1.0,
+    "Eighth": 0.5,
+    "16th": 0.25,
+    "Sixteenth": 0.25,
+    "32nd": 0.125,
+    "ThirtySecond": 0.125,
+    "64th": 0.0625,
+    "SixtyFourth": 0.0625
+}
+
+
+def get_beat_duration(rhythm: Dict[str, Any]) -> float:
+    """Calculates duration in quarter-note beats for a given rhythm object."""
+    if not rhythm:
+        return 1.0
+    note_val = rhythm.get("note_value") or rhythm.get("noteValue") or "Quarter"
+    base = DURATIONS.get(note_val, 1.0)
+    dots = rhythm.get("dots", 0)
+    if dots == 1:
+        base *= 1.5
+    elif dots == 2:
+        base *= 1.75
+    tuplet = rhythm.get("tuplet")
+    if tuplet and len(tuplet) == 2 and tuplet[0] > 0:
+        base *= (tuplet[1] / tuplet[0])
+    return base
 
 
 def build_complete_ums(
@@ -18,7 +48,8 @@ def build_complete_ums(
     secondary_pdf_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Fuses GuitarProScore with extracted PDF music data to build a complete canonical UMS SongGraph.
+    Fuses GuitarProScore with extracted PDF music data to build a complete canonical UMS SongGraph
+    explicitly populating layer_a (Chords & Lyrics), layer_b (Guitar Tablature), and layer_c (Standard Notation Staff).
     """
     # 1. Resolve Canonical Metadata
     pdf_meta = pdf_data.get("metadata", {}) if pdf_data else {}
@@ -37,14 +68,18 @@ def build_complete_ums(
         "Unknown Artist"
     )
     album = gp_score.metadata.get("album") or None
-    original_key = pdf_meta.get("key") or sec_meta.get("key") or "Am"
+    original_key = pdf_meta.get("key") or sec_meta.get("key") or "D"
     tempo_bpm = gp_score.tempo or pdf_meta.get("tempo_bpm") or 120
     time_sig = gp_score.primary_time_signature
     strum_pattern = pdf_meta.get("strum_pattern") or sec_meta.get("strum_pattern") or None
 
     primary_track = gp_score.tracks[0] if gp_score.tracks else {
-        "id": 0, "name": "Primary", "tuning_names": ["E2", "A2", "D3", "G3", "B3", "E4"], "capo": 0, "string_count": 6, "color": "255,140,0"
+        "id": 0, "name": "Primary", "tuning_names": ["E2", "A2", "D3", "G3", "B3", "E4"],
+        "tuning_pitches": [40, 45, 50, 55, 59, 64], "capo": 0, "string_count": 6, "color": "255,140,0"
     }
+    tuning_pitches = primary_track.get("tuning_pitches", [40, 45, 50, 55, 59, 64])
+    string_count = len(tuning_pitches)
+    capo = primary_track.get("capo", 0)
 
     # 2. Extract Sections & Milestones
     pdf_sections = pdf_data.get("structure", []) if pdf_data else []
@@ -54,19 +89,16 @@ def build_complete_ums(
     if secondary_pdf_data:
         score_milestones.update(secondary_pdf_data.get("milestones", {}))
 
-    # 3. Build Measure Timeline & Events
+    # 3. Build Measure Timeline & Section Boundaries
     track_bars = gp_score.get_track_bars(0) if gp_score.tracks else []
     total_bars = len(track_bars)
 
-    # Determine Section Boundaries across measures
     section_map_ranges = []
     if pdf_sections:
-        # Filter clean sections with lines or chords
         clean_secs = [s for s in pdf_sections if s.get("lines") or s.get("chords")]
         if not clean_secs:
             clean_secs = pdf_sections
 
-        # Compute weights based on lines and chords
         weights = []
         for s in clean_secs:
             num_lines = max(1, len(s.get("lines", [])))
@@ -98,7 +130,6 @@ def build_complete_ums(
             if cur_bar > total_bars:
                 break
     else:
-        # Single default section
         section_map_ranges.append({
             "section_index": 0,
             "name": "Full Song",
@@ -107,8 +138,10 @@ def build_complete_ums(
             "pdf_section": None
         })
 
-    # 4. Construct Structure Blocks
+    # 4. Construct Structure Blocks & Tri-Layer Measure Events
+    reconciliation_log: List[Dict[str, Any]] = []
     structure_blocks = []
+
     for s_range in section_map_ranges:
         s_name = s_range["name"]
         start_b = s_range["start_bar"]
@@ -117,10 +150,10 @@ def build_complete_ums(
 
         measures_list = []
         bar_subset = [b for b in track_bars if start_b <= b["measure_number"] <= end_b]
-        
-        # Collect chords for this section from PDF
-        sec_chords = []
-        sec_lyrics = []
+
+        # Extract chords and lyrics from PDF section
+        sec_chords: List[str] = []
+        sec_lyrics: List[str] = []
         if pdf_sec:
             for line in pdf_sec.get("lines", []):
                 for ce in line.get("chord_events", []):
@@ -132,18 +165,28 @@ def build_complete_ums(
         for b in bar_subset:
             m_num = b["measure_number"]
             m_time = b["time"]
+            clef_val = b.get("clef", "treble")
             events = []
+            cur_beat_division = 1.0
 
-            # Beats from GP
             gp_beats = b.get("beats", [])
             if gp_beats:
                 for b_idx, beat in enumerate(gp_beats):
+                    rhythm_obj = beat.get("rhythm", {})
+                    rhythm_name = rhythm_obj.get("note_value", "Quarter")
+                    dur_val = get_beat_duration(rhythm_obj)
+                    beat_dynamic = beat.get("dynamic") or "mf"
+
+                    # Build Layer B (Tablature) & Layer C (Notation)
                     notes_tab = []
+                    notes_notation = []
                     for n in beat.get("notes", []):
                         if n:
+                            s_idx = n.get("string", 0)
+                            f_val = n.get("fret", 0)
                             notes_tab.append({
-                                "string": n.get("string", 0),
-                                "fret": n.get("fret", 0),
+                                "string": s_idx,
+                                "fret": f_val,
                                 "hopo": n.get("hopo", False),
                                 "bend": n.get("bend"),
                                 "slide": n.get("slide"),
@@ -151,34 +194,102 @@ def build_complete_ums(
                                 "palm_mute": n.get("palm_mute", False)
                             })
 
-                    # Assign chord to downbeat of measure if available
-                    assigned_chord = beat.get("chord")
-                    if not assigned_chord and b_idx == 0 and sec_chords:
+                            # Calculate MIDI pitch: TuningPitch + Fret + Capo
+                            t_idx = string_count - 1 - s_idx
+                            open_pitch = tuning_pitches[t_idx] if 0 <= t_idx < len(tuning_pitches) else 64
+                            midi_pitch = open_pitch + f_val + capo
+                            pitch_name = midi_to_note_name(midi_pitch)
+
+                            notes_notation.append({
+                                "pitch": pitch_name,
+                                "midi_pitch": midi_pitch,
+                                "duration": rhythm_name,
+                                "dynamics": beat_dynamic
+                            })
+
+                    # Build Layer A (Chords & Lyrics with Conflict Resolution)
+                    gp_chord = beat.get("chord")
+                    hard_fault = None
+                    assigned_chord = None
+
+                    if gp_chord:
+                        assigned_chord = gp_chord
+                        # If PDF has richer chord at this downbeat, reconcile
+                        if b_idx == 0 and sec_chords:
+                            pdf_chord = sec_chords[chord_idx % len(sec_chords)]
+                            if pdf_chord != gp_chord:
+                                reconciliation_log.append({
+                                    "measure_number": m_num,
+                                    "beat_division": round(cur_beat_division, 3),
+                                    "type": "chord_discrepancy",
+                                    "gp_value": gp_chord,
+                                    "pdf_value": pdf_chord,
+                                    "resolution": "applied_rich_pdf_chord"
+                                })
+                                hard_fault = {
+                                    "type": "chord_discrepancy",
+                                    "gp_chord": gp_chord,
+                                    "pdf_chord": pdf_chord,
+                                    "resolution": "applied_rich_pdf_chord"
+                                }
+                                assigned_chord = pdf_chord
+                                chord_idx += 1
+                    elif b_idx == 0 and sec_chords:
                         assigned_chord = sec_chords[chord_idx % len(sec_chords)]
                         chord_idx += 1
 
-                    events.append({
-                        "layer_a_chord": assigned_chord,
-                        "layer_b_tab": notes_tab if notes_tab else None,
-                        "rhythm": beat.get("rhythm", {}).get("note_value", "Quarter"),
-                        "palm_mute": beat.get("palm_mute", False),
-                        "text": beat.get("text")
-                    })
+                    # Lyrics: GP beat lyrics take priority, then GP text
+                    assigned_lyric = beat.get("lyrics") or beat.get("text") or None
+                    if assigned_lyric == "_":
+                        assigned_lyric = None
+
+                    event_obj = {
+                        "beat_division": round(cur_beat_division, 3),
+                        "layer_a": {
+                            "chord": assigned_chord,
+                            "lyrics": assigned_lyric
+                        },
+                        "layer_b": {
+                            "tab_positions": notes_tab,
+                            "rhythm": rhythm_name
+                        },
+                        "layer_c": {
+                            "clef": clef_val,
+                            "notes": notes_notation
+                        },
+                        "hard_fault": hard_fault
+                    }
+                    events.append(event_obj)
+                    cur_beat_division += dur_val
             else:
-                # Empty measure fallback
+                # Rest / Empty measure fallback
+                assigned_chord = sec_chords[chord_idx % len(sec_chords)] if sec_chords else None
+                if assigned_chord:
+                    chord_idx += 1
+
                 events.append({
-                    "layer_a_chord": sec_chords[chord_idx % len(sec_chords)] if sec_chords else None,
-                    "layer_b_tab": None,
-                    "rhythm": "Whole",
-                    "palm_mute": False,
-                    "text": None
+                    "beat_division": 1.0,
+                    "layer_a": {
+                        "chord": assigned_chord,
+                        "lyrics": None
+                    },
+                    "layer_b": {
+                        "tab_positions": [],
+                        "rhythm": "Whole"
+                    },
+                    "layer_c": {
+                        "clef": clef_val,
+                        "notes": []
+                    },
+                    "hard_fault": None
                 })
-                chord_idx += 1
 
             measures_list.append({
+                "measure_index": m_num,
                 "measure_number": m_num,
                 "time_signature": m_time,
-                "events": events
+                "events": events,
+                "musical_events": events
             })
 
         structure_blocks.append({
@@ -202,7 +313,7 @@ def build_complete_ums(
     ))
 
     song_graph = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "canonical": {
             "title": title,
             "artist": artist,
@@ -221,7 +332,26 @@ def build_complete_ums(
         },
         "tracks": gp_score.tracks,
         "structure": structure_blocks,
+        "reconciliation_log": reconciliation_log,
         "requires_agent_intervention": False
     }
 
     return song_graph
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python3 ums_builder.py <gp_file> [chords_pdf] [vocals_pdf]")
+        sys.exit(1)
+
+    gp_file = sys.argv[1]
+    chords_pdf = sys.argv[2] if len(sys.argv) > 2 else None
+    vocals_pdf = sys.argv[3] if len(sys.argv) > 3 else None
+
+    gp = GuitarProScore.from_file(gp_file)
+    c_data = pdf_extractor.parse_music_pdf(chords_pdf) if chords_pdf else None
+    v_data = pdf_extractor.parse_music_pdf(vocals_pdf) if vocals_pdf else None
+
+    ums = build_complete_ums(gp, c_data, v_data)
+    print(json.dumps(ums, indent=2))

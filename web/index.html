@@ -227,6 +227,7 @@
                         <span class="badge badge-info" id="badge-tuning">Tuning: E2 A2 D3 G3 B3 E4</span>
                         <span class="badge badge-info" id="badge-capo">Capo: 0</span>
                         <span class="badge badge-info" id="badge-strum" style="display:none">Strumming</span>
+                        <span class="badge badge-warning" id="badge-reconciliation" style="display:none">⚠️ 0 Discrepancies Reconciled</span>
                         <span class="badge badge-tracks" id="badge-track-count">1 Track</span>
                     </div>
                 </div>
@@ -420,6 +421,26 @@
                                                 <th>Start Bar</th>
                                                 <th>Time Signature</th>
                                                 <th>Notes / Details</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="card summary-card" id="summary-reconciliation-card" style="display:none">
+                                <h3>Source Reconciliation & Telemetry Log</h3>
+                                <p class="card-subtitle">Multi-source alignment decisions and resolved discrepancies</p>
+                                <div class="table-responsive">
+                                    <table class="data-table" id="summary-reconciliation-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Measure</th>
+                                                <th>Beat</th>
+                                                <th>Conflict Type</th>
+                                                <th>GP Score</th>
+                                                <th>PDF Lead</th>
+                                                <th>Resolution Applied</th>
                                             </tr>
                                         </thead>
                                         <tbody></tbody>
