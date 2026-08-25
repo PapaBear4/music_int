@@ -55,6 +55,13 @@
 
             <!-- Header Actions & Theme Selector -->
             <div class="header-right">
+                <!-- Global AI Activity Status Indicator -->
+                <div id="global-ai-status-pill" class="ai-status-pill idle" title="Live AI Processing Status">
+                    <span class="ai-status-spinner"></span>
+                    <span class="ai-status-icon">🤖</span>
+                    <span id="global-ai-status-text" class="ai-status-text">AI Ready</span>
+                </div>
+
                 <!-- Theme Switcher -->
                 <div class="theme-selector-wrapper">
                     <label for="theme-select" class="visually-hidden">Color Theme</label>
@@ -65,6 +72,11 @@
                         <option value="theme-mono">🎹 Monochrome</option>
                     </select>
                 </div>
+
+                <!-- LLM Settings & Discrepancy Drawer Triggers -->
+                <button id="btn-open-llm-modal" class="btn btn-secondary btn-sm" title="Configure LLM Provider, API Key, and Decision Authority">
+                    <span class="btn-icon">⚙️</span> AI Config & Model
+                </button>
 
                 <!-- Multi-Source Ingestion Modal Trigger -->
                 <button id="btn-open-ingest-modal" class="btn btn-primary" title="Open Multi-Source Ingestion Dashboard">
@@ -78,6 +90,104 @@
                 <input type="file" id="file-input" accept=".gp,.gpx,.gp3,.gp4,.gp5,.gpif,.xml,.json,.pdf" class="visually-hidden">
             </div>
         </header>
+
+        <!-- LLM Provider & Authority Configuration Modal -->
+        <div id="llm-modal-backdrop" class="modal-backdrop">
+            <div class="modal-dialog" role="dialog" aria-labelledby="llm-modal-title" aria-modal="true">
+                <div class="modal-header">
+                    <div class="modal-title-group">
+                        <div class="modal-icon">🤖</div>
+                        <div>
+                            <h2 id="llm-modal-title" class="modal-title">AI Reconciliation & Model Config</h2>
+                            <p class="modal-subtitle">Configure your LLM provider, API key, and arbitration authority</p>
+                        </div>
+                    </div>
+                    <button id="btn-close-llm-modal" class="modal-close-btn" aria-label="Close modal">✕</button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="llm-provider-select">Provider:</label>
+                            <select id="llm-provider-select" class="form-select">
+                                <option value="openrouter" selected>OpenRouter (Recommended - 100+ Models)</option>
+                                <option value="gemini">Google Gemini (Direct API)</option>
+                                <option value="openai">OpenAI / Compatible API</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="form-label-row">
+                                <label for="llm-model-input">Model:</label>
+                                <div class="models-action-group">
+                                    <span id="models-fetch-status" class="models-status-text"></span>
+                                    <button type="button" id="btn-fetch-models" class="btn btn-secondary btn-xs" title="Ping provider server to discover live available models">
+                                        🔄 Ping & Fetch Models
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="model-select-combobox">
+                                <select id="llm-model-dropdown" class="form-select model-dropdown" style="display:none;">
+                                    <option value="">Select from discovered models...</option>
+                                </select>
+                                <input type="text" id="llm-model-input" list="available-models-list" class="form-input" value="google/gemini-2.5-flash" placeholder="e.g. google/gemini-2.5-flash, anthropic/claude-3.5-sonnet">
+                                <datalist id="available-models-list"></datalist>
+                            </div>
+                            <div class="form-hints" id="model-preset-hints">
+                                <span class="badge-hint" data-model="google/gemini-2.5-flash">Gemini 2.5 Flash</span>
+                                <span class="badge-hint" data-model="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</span>
+                                <span class="badge-hint" data-model="deepseek/deepseek-r1">DeepSeek R1</span>
+                                <span class="badge-hint" data-model="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="llm-api-key-input">API Key (Stored locally in your browser):</label>
+                            <div class="input-with-action">
+                                <input type="password" id="llm-api-key-input" class="form-input" placeholder="Enter API Key (Leave empty to use built-in simulator)">
+                                <button type="button" id="btn-toggle-key-visibility" class="btn btn-ghost btn-sm">👁</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="llm-authority-select">Decision Authority Dial (Sliding Autonomy):</label>
+                            <div class="authority-slider-cards">
+                                <label class="authority-card">
+                                    <input type="radio" name="authority-level" value="advisory">
+                                    <div class="authority-card-content">
+                                        <div class="authority-title">🛡️ Advisory / Copilot</div>
+                                        <div class="authority-desc">LLM explains rationale and proposes solutions; you review and approve every conflict.</div>
+                                    </div>
+                                </label>
+                                <label class="authority-card selected">
+                                    <input type="radio" name="authority-level" value="balanced" checked>
+                                    <div class="authority-card-content">
+                                        <div class="authority-title">⚖️ Balanced Guardrails</div>
+                                        <div class="authority-desc">Auto-resolves high confidence (≥85%); flags ambiguous conflicts for review.</div>
+                                    </div>
+                                </label>
+                                <label class="authority-card">
+                                    <input type="radio" name="authority-level" value="autonomous">
+                                    <div class="authority-card-content">
+                                        <div class="authority-title">⚡ Full Autonomous</div>
+                                        <div class="authority-desc">Auto-resolves all discrepancies, records complete rationale and traces in UMS.</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <div class="modal-footer-left">
+                        <button id="btn-test-llm-connection" class="btn btn-secondary btn-sm">🔌 Test Connection</button>
+                    </div>
+                    <div class="modal-footer-right">
+                        <button id="btn-save-llm-config" class="btn btn-primary">Save Settings</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Multi-Source Ingestion Modal -->
         <div id="ingest-modal-backdrop" class="modal-backdrop">
@@ -94,92 +204,39 @@
                 </div>
 
                 <div class="modal-body">
-                    <!-- Master Drag & Drop Auto-Classifier Banner -->
+                    <!-- Master Universal Drag & Drop Area -->
                     <div id="modal-batch-dropzone" class="batch-drop-banner">
                         <div class="batch-drop-icon">📥</div>
-                        <div class="batch-drop-title">Drag & Drop All Song Files Here</div>
-                        <div class="batch-drop-subtitle">Drop your .gp file and any score / chord PDFs together — we'll auto-classify each slot!</div>
+                        <div class="batch-drop-title">Drag & Drop Any Song Files Here</div>
+                        <div class="batch-drop-subtitle">Drop your .gp scores, PDF lead sheets, vocal scores, ChordPro charts, MusicXML, or MIDI files together.</div>
+                        <label for="modal-multi-file-input" class="btn btn-secondary btn-sm" style="cursor:pointer">
+                            📁 Browse & Add Files
+                        </label>
+                        <input type="file" id="modal-multi-file-input" multiple accept=".gp,.gpx,.gp3,.gp4,.gp5,.gpif,.xml,.json,.pdf,.chordpro,.pro,.cho,.txt,.mid,.midi" class="visually-hidden">
                     </div>
 
-                    <!-- 4 Dedicated Source Slot Cards -->
-                    <div class="slots-grid">
-                        
-                        <!-- Slot 1: Primary Score (.gp) -->
-                        <div class="slot-card" id="slot-card-gp">
-                            <div class="slot-header">
-                                <div class="slot-title-group">
-                                    <span class="slot-icon">🎸</span>
-                                    <span class="slot-name">Guitar Pro Score</span>
-                                </div>
-                                <span class="slot-badge required">Primary</span>
-                            </div>
-                            <div class="slot-content" id="slot-content-gp">
-                                <div class="slot-placeholder-text">Drop .gp, .gpx, or .gpif file</div>
-                            </div>
-                            <div class="slot-actions">
-                                <label for="slot-input-gp" class="btn btn-secondary btn-sm">Browse</label>
-                                <input type="file" id="slot-input-gp" accept=".gp,.gpx,.gp3,.gp4,.gp5,.gpif,.xml" class="visually-hidden">
-                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="gp" style="display:none">Clear</button>
+                    <!-- Dynamic Uploaded Files Deck -->
+                    <div class="uploaded-files-section">
+                        <div class="uploaded-files-header">
+                            <span class="uploaded-files-title">Uploaded Source Files (<span id="uploaded-files-count">0</span>)</span>
+                            <span class="pane-hint">All sources will be analyzed and attributed dynamically</span>
+                        </div>
+                        <div id="uploaded-files-list" class="uploaded-files-list">
+                            <div class="empty-files-placeholder" id="empty-files-placeholder">
+                                No files uploaded yet. Drag & drop files above or click Browse to begin.
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Slot 2: Chord Sheet PDF -->
-                        <div class="slot-card" id="slot-card-chords">
-                            <div class="slot-header">
-                                <div class="slot-title-group">
-                                    <span class="slot-icon">📑</span>
-                                    <span class="slot-name">Chord Sheet / Lead PDF</span>
-                                </div>
-                                <span class="slot-badge optional">Key & Chords</span>
-                            </div>
-                            <div class="slot-content" id="slot-content-chords">
-                                <div class="slot-placeholder-text">Drop chords.pdf or lead sheet</div>
-                            </div>
-                            <div class="slot-actions">
-                                <label for="slot-input-chords" class="btn btn-secondary btn-sm">Browse</label>
-                                <input type="file" id="slot-input-chords" accept=".pdf,.txt,.chordpro" class="visually-hidden">
-                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="chords" style="display:none">Clear</button>
-                            </div>
+                    <!-- Ingestion & AI Synthesis Live Progress -->
+                    <div id="ingest-progress-container" class="ingest-progress-container" style="display:none;">
+                        <div class="progress-indicator-row">
+                            <div class="progress-pulse-ring"></div>
+                            <span id="ingest-progress-text" class="progress-status-text">Synthesizing sources & querying AI arbitration...</span>
                         </div>
-
-                        <!-- Slot 3: Vocal Melody PDF -->
-                        <div class="slot-card" id="slot-card-vocals">
-                            <div class="slot-header">
-                                <div class="slot-title-group">
-                                    <span class="slot-icon">🎤</span>
-                                    <span class="slot-name">Vocal Melody PDF</span>
-                                </div>
-                                <span class="slot-badge optional">Lyrics & Milestones</span>
-                            </div>
-                            <div class="slot-content" id="slot-content-vocals">
-                                <div class="slot-placeholder-text">Drop vocals.pdf score</div>
-                            </div>
-                            <div class="slot-actions">
-                                <label for="slot-input-vocals" class="btn btn-secondary btn-sm">Browse</label>
-                                <input type="file" id="slot-input-vocals" accept=".pdf" class="visually-hidden">
-                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="vocals" style="display:none">Clear</button>
-                            </div>
+                        <div class="progress-bar-track">
+                            <div id="ingest-progress-bar-fill" class="progress-bar-fill" style="width: 25%;"></div>
                         </div>
-
-                        <!-- Slot 4: Piano / Accompaniment Score PDF -->
-                        <div class="slot-card" id="slot-card-piano">
-                            <div class="slot-header">
-                                <div class="slot-title-group">
-                                    <span class="slot-icon">🎹</span>
-                                    <span class="slot-name">Piano Score PDF</span>
-                                </div>
-                                <span class="slot-badge optional">Dynamics</span>
-                            </div>
-                            <div class="slot-content" id="slot-content-piano">
-                                <div class="slot-placeholder-text">Drop piano.pdf score</div>
-                            </div>
-                            <div class="slot-actions">
-                                <label for="slot-input-piano" class="btn btn-secondary btn-sm">Browse</label>
-                                <input type="file" id="slot-input-piano" accept=".pdf" class="visually-hidden">
-                                <button class="btn btn-ghost btn-sm btn-clear-slot" data-slot="piano" style="display:none">Clear</button>
-                            </div>
-                        </div>
-
                     </div>
                 </div>
 
@@ -193,7 +250,7 @@
                     <div class="modal-footer-right">
                         <button id="btn-cancel-ingest" class="btn btn-ghost">Cancel</button>
                         <button id="btn-fuse-ums" class="btn btn-primary" disabled>
-                            <span class="btn-icon">⚡</span> Fuse & Build Complete UMS
+                            <span class="btn-icon">⚡</span> Ingest & Build Complete UMS
                         </button>
                     </div>
                 </div>
@@ -268,6 +325,9 @@
                 </button>
                 <button class="tab-btn" data-target="view-ums" role="tab" id="tab-ums" aria-selected="false">
                     🧬 UMS / JSON Data
+                </button>
+                <button class="tab-btn" data-target="view-discrepancies" role="tab" id="tab-discrepancies" aria-selected="false">
+                    ⚖️ Discrepancies & AI Traces <span id="tab-conflict-badge" class="badge-tab-counter" style="display:none">0</span>
                 </button>
                 <button class="tab-btn" data-target="view-xml" role="tab" id="tab-xml" aria-selected="false">
                     🔍 Raw GPIF XML
@@ -477,7 +537,107 @@
                     </div>
                 </section>
 
-                <!-- 6. Raw GPIF XML View -->
+                <!-- 6. Discrepancies & AI Reconciliation View -->
+                <section id="view-discrepancies" class="tab-pane" role="tabpanel">
+                    <div class="pane-toolbar">
+                        <div class="toolbar-left">
+                            <span class="pane-title">Discrepancy Inspector & AI Reconciliation HUD</span>
+                            <span class="pane-hint">Cross-source conflicts, musical rationale, and interactive user steering</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <button id="btn-re-run-arbitration" class="btn btn-secondary btn-sm" title="Re-run LLM Arbitration with current settings">
+                                🤖 Re-Run AI Arbitration
+                            </button>
+                            <button id="btn-accept-all-ai" class="btn btn-primary btn-sm" title="Accept all proposed AI resolutions">
+                                ✅ Accept All AI Proposals
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Discrepancy Overview Metrics -->
+                    <div class="discrepancy-status-bar">
+                        <div class="status-pill" id="pill-total-conflicts">
+                            <span class="pill-icon">⚠️</span>
+                            <span class="pill-text"><strong id="metric-conflict-count">0</strong> Discrepancies</span>
+                        </div>
+                        <div class="status-pill" id="pill-authority-mode">
+                            <span class="pill-icon">⚖️</span>
+                            <span class="pill-text">Authority: <strong id="metric-authority-mode">Balanced</strong></span>
+                        </div>
+                        <div class="status-pill" id="pill-llm-model">
+                            <span class="pill-icon">🤖</span>
+                            <span class="pill-text">Model: <strong id="metric-llm-model">Gemini 2.5 Flash</strong></span>
+                        </div>
+                        <div class="status-pill" id="pill-steered-count">
+                            <span class="pill-icon">🎯</span>
+                            <span class="pill-text"><strong id="metric-steered-count">0</strong> User-Steered</span>
+                        </div>
+                    </div>
+
+                    <!-- Discrepancies & Traces 2-Column Layout -->
+                    <div class="discrepancy-grid-layout">
+                        
+                        <!-- Left Column: Interactive Conflict Cards Deck -->
+                        <div class="discrepancy-main-column">
+                            <div class="deck-header">
+                                <h3>Detected Source Conflicts</h3>
+                                <div class="deck-filters">
+                                    <button class="filter-chip active" data-filter="all">All (<span id="filter-count-all">0</span>)</button>
+                                    <button class="filter-chip" data-filter="chord_mismatch">Chords (<span id="filter-count-chord">0</span>)</button>
+                                    <button class="filter-chip" data-filter="capo_key_offset">Capo / Key (<span id="filter-count-capo">0</span>)</button>
+                                    <button class="filter-chip" data-filter="section_structure">Structure (<span id="filter-count-structure">0</span>)</button>
+                                </div>
+                            </div>
+                            <div id="discrepancy-cards-list" class="conflict-cards-deck">
+                                <div class="empty-conflicts-state">
+                                    <div class="empty-icon">✨</div>
+                                    <h4>No active conflicts detected</h4>
+                                    <p>Load multi-source files using the Multi-Source Ingestion button to detect and reconcile cross-source differences.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Live Instrumentation Console & Traces -->
+                        <div class="discrepancy-sidebar-column">
+                            <div class="card summary-card traces-card">
+                                <div class="traces-header">
+                                    <div class="traces-title-group">
+                                        <span class="pulse-indicator"></span>
+                                        <h3>Live AI Instrumentation & Traces</h3>
+                                    </div>
+                                    <button id="btn-clear-traces" class="btn btn-ghost btn-sm">Clear</button>
+                                </div>
+                                <div id="live-traces-stream" class="traces-stream">
+                                    <div class="trace-entry info">
+                                        <span class="trace-time">00:00:00</span>
+                                        <span class="trace-msg">System initialized. Awaiting multi-source ingest...</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card summary-card">
+                                <h3>Telemetry & Performance</h3>
+                                <div class="telemetry-stats" id="telemetry-stats-container">
+                                    <div class="telemetry-item">
+                                        <span class="telemetry-label">Avg LLM Latency:</span>
+                                        <span class="telemetry-value" id="telem-latency">-- ms</span>
+                                    </div>
+                                    <div class="telemetry-item">
+                                        <span class="telemetry-label">Total Prompt Tokens:</span>
+                                        <span class="telemetry-value" id="telem-prompt-tokens">--</span>
+                                    </div>
+                                    <div class="telemetry-item">
+                                        <span class="telemetry-label">Completion Tokens:</span>
+                                        <span class="telemetry-value" id="telem-comp-tokens">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+                <!-- 7. Raw GPIF XML View -->
                 <section id="view-xml" class="tab-pane" role="tabpanel">
                     <div class="pane-toolbar">
                         <div class="toolbar-left">

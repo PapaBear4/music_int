@@ -10,6 +10,8 @@ import { convertToUms } from "./ums_converter.js";
 import { renderChordSvg } from "./chord_diagrams.js";
 import { parsePdfMusic } from "./pdf_extractor.js";
 import { buildCompleteUmsClient } from "./ums_builder.js";
+import { FusionHarness } from "./fusion_harness.js";
+import { classifyFileType } from "./source_manager.js";
 
 class App {
     constructor() {
@@ -21,19 +23,20 @@ class App {
         this.alphaTabApi = null;
         this.currentRawBytes = null;
 
-        // Multi-source slot states
-        this.slotFiles = {
-            gp: null,      // { file, buffer, parsedScore }
-            chords: null,  // { file, buffer, parsedPdf }
-            vocals: null,  // { file, buffer, parsedPdf }
-            piano: null    // { file, buffer, parsedPdf }
-        };
+        // Multi-Source Ingestion & Fusion Harness
+        this.fusionHarness = new FusionHarness();
+        this.userSteerings = {};
+        this.activeConflictFilter = "all";
+        this.uploadedFiles = []; // Array of { id, file, name, size, buffer, fileType, parsedAst }
 
         this.initElements();
         this.initTheme();
         this.initAlphaTab();
         this.initEventListeners();
         this.initIngestModal();
+        this.initLlmModal();
+        this.initDiscrepancyHud();
+        this.initLiveTraces();
 
         // Default initial load
         this.loadSample("samples/acoustic_fingerstyle.gp");
@@ -46,6 +49,7 @@ class App {
         // Tabs
         this.tabButtons = document.querySelectorAll(".tab-btn");
         this.tabPanes = document.querySelectorAll(".tab-pane");
+        this.tabConflictBadge = document.getElementById("tab-conflict-badge");
 
         // Song Info
         this.songTitle = document.getElementById("song-title");
@@ -117,29 +121,57 @@ class App {
         this.btnCancelIngest = document.getElementById("btn-cancel-ingest");
         this.ingestModalBackdrop = document.getElementById("ingest-modal-backdrop");
         this.modalBatchDropzone = document.getElementById("modal-batch-dropzone");
+        this.modalMultiFileInput = document.getElementById("modal-multi-file-input");
+        this.uploadedFilesList = document.getElementById("uploaded-files-list");
+        this.uploadedFilesCount = document.getElementById("uploaded-files-count");
+        this.emptyFilesPlaceholder = document.getElementById("empty-files-placeholder");
+        this.ingestProgressContainer = document.getElementById("ingest-progress-container");
+        this.ingestProgressText = document.getElementById("ingest-progress-text");
+        this.ingestProgressBarFill = document.getElementById("ingest-progress-bar-fill");
         this.btnFuseUms = document.getElementById("btn-fuse-ums");
         this.btnLoadBundleSample = document.getElementById("btn-load-bundle-sample");
         this.btnClearAllSlots = document.getElementById("btn-clear-all-slots");
 
-        // Slot Cards & Inputs
-        this.slotCards = {
-            gp: document.getElementById("slot-card-gp"),
-            chords: document.getElementById("slot-card-chords"),
-            vocals: document.getElementById("slot-card-vocals"),
-            piano: document.getElementById("slot-card-piano")
-        };
-        this.slotContents = {
-            gp: document.getElementById("slot-content-gp"),
-            chords: document.getElementById("slot-content-chords"),
-            vocals: document.getElementById("slot-content-vocals"),
-            piano: document.getElementById("slot-content-piano")
-        };
-        this.slotInputs = {
-            gp: document.getElementById("slot-input-gp"),
-            chords: document.getElementById("slot-input-chords"),
-            vocals: document.getElementById("slot-input-vocals"),
-            piano: document.getElementById("slot-input-piano")
-        };
+        // Global AI Status Indicator
+        this.globalAiStatusPill = document.getElementById("global-ai-status-pill");
+        this.globalAiStatusText = document.getElementById("global-ai-status-text");
+
+        // LLM Configuration Modal Elements
+        this.btnOpenLlmModal = document.getElementById("btn-open-llm-modal");
+        this.btnCloseLlmModal = document.getElementById("btn-close-llm-modal");
+        this.llmModalBackdrop = document.getElementById("llm-modal-backdrop");
+        this.llmProviderSelect = document.getElementById("llm-provider-select");
+        this.llmModelInput = document.getElementById("llm-model-input");
+        this.llmModelDropdown = document.getElementById("llm-model-dropdown");
+        this.btnFetchModels = document.getElementById("btn-fetch-models");
+        this.modelsFetchStatus = document.getElementById("models-fetch-status");
+        this.availableModelsList = document.getElementById("available-models-list");
+        this.llmApiKeyInput = document.getElementById("llm-api-key-input");
+        this.btnToggleKeyVisibility = document.getElementById("btn-toggle-key-visibility");
+        this.btnSaveLlmConfig = document.getElementById("btn-save-llm-config");
+        this.btnTestLlmConnection = document.getElementById("btn-test-llm-connection");
+        this.authorityRadios = document.querySelectorAll('input[name="authority-level"]');
+
+        // Discrepancy HUD Elements
+        this.btnReRunArbitration = document.getElementById("btn-re-run-arbitration");
+        this.btnAcceptAllAi = document.getElementById("btn-accept-all-ai");
+        this.discrepancyCardsList = document.getElementById("discrepancy-cards-list");
+        this.filterChips = document.querySelectorAll(".filter-chip");
+        this.metricConflictCount = document.getElementById("metric-conflict-count");
+        this.metricAuthorityMode = document.getElementById("metric-authority-mode");
+        this.metricLlmModel = document.getElementById("metric-llm-model");
+        this.metricSteeredCount = document.getElementById("metric-steered-count");
+        this.filterCountAll = document.getElementById("filter-count-all");
+        this.filterCountChord = document.getElementById("filter-count-chord");
+        this.filterCountCapo = document.getElementById("filter-count-capo");
+        this.filterCountStructure = document.getElementById("filter-count-structure");
+
+        // Live Traces Console Elements
+        this.liveTracesStream = document.getElementById("live-traces-stream");
+        this.btnClearTraces = document.getElementById("btn-clear-traces");
+        this.telemLatency = document.getElementById("telem-latency");
+        this.telemPromptTokens = document.getElementById("telem-prompt-tokens");
+        this.telemCompTokens = document.getElementById("telem-comp-tokens");
 
         // Toast Container
         this.toastContainer = document.getElementById("toast-container");
@@ -252,11 +284,11 @@ class App {
         // File Input Change
         this.fileInput.addEventListener("change", (e) => {
             if (e.target.files && e.target.files.length > 0) {
-                if (e.target.files.length === 1) {
+                if (e.target.files.length === 1 && !e.target.files[0].name.toLowerCase().endsWith(".pdf")) {
                     this.loadFile(e.target.files[0]);
                 } else {
                     this.openIngestModal();
-                    this.handleBatchFiles(Array.from(e.target.files));
+                    this.addUploadedFiles(Array.from(e.target.files));
                 }
             }
         });
@@ -264,7 +296,14 @@ class App {
         // Global Drag & Drop Handlers
         window.addEventListener("dragenter", (e) => {
             e.preventDefault();
-            this.dropOverlay.classList.remove("visually-hidden");
+            // Don't show full-screen overlay if a modal is already open
+            if (!this.ingestModalBackdrop.classList.contains("active") && !this.llmModalBackdrop?.classList.contains("active")) {
+                this.dropOverlay.classList.remove("visually-hidden");
+            }
+        });
+
+        window.addEventListener("dragover", (e) => {
+            e.preventDefault();
         });
 
         this.dropOverlay.addEventListener("dragover", (e) => {
@@ -286,7 +325,7 @@ class App {
                     this.loadFile(e.dataTransfer.files[0]);
                 } else {
                     this.openIngestModal();
-                    this.handleBatchFiles(Array.from(e.dataTransfer.files));
+                    this.addUploadedFiles(Array.from(e.dataTransfer.files));
                 }
             }
         });
@@ -411,64 +450,60 @@ class App {
             if (e.target === this.ingestModalBackdrop) this.closeIngestModal();
         });
 
-        // Slot Input Listeners
-        Object.keys(this.slotInputs).forEach(slotKey => {
-            const input = this.slotInputs[slotKey];
-            if (input) {
-                input.addEventListener("change", (e) => {
-                    if (e.target.files && e.target.files[0]) {
-                        this.handleSlotFile(e.target.files[0], slotKey);
-                    }
-                });
-            }
-        });
-
-        // Slot Content Click -> trigger input
-        Object.keys(this.slotContents).forEach(slotKey => {
-            const content = this.slotContents[slotKey];
-            if (content) {
-                content.addEventListener("click", () => {
-                    if (!this.slotFiles[slotKey]) {
-                        this.slotInputs[slotKey].click();
-                    }
-                });
-            }
-        });
-
-        // Clear Slot buttons
-        document.querySelectorAll(".btn-clear-slot").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-                const slot = e.target.getAttribute("data-slot");
-                this.clearSlot(slot);
+        // Multi-file browse input listener
+        if (this.modalMultiFileInput) {
+            this.modalMultiFileInput.addEventListener("change", (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    this.addUploadedFiles(Array.from(e.target.files));
+                    this.modalMultiFileInput.value = "";
+                }
             });
-        });
-
-        // Clear All Slots
-        if (this.btnClearAllSlots) {
-            this.btnClearAllSlots.addEventListener("click", () => this.clearAllSlots());
         }
 
         // Master Batch Dropzone
         if (this.modalBatchDropzone) {
             this.modalBatchDropzone.addEventListener("dragover", (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 this.modalBatchDropzone.classList.add("dragover");
             });
             this.modalBatchDropzone.addEventListener("dragleave", (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 this.modalBatchDropzone.classList.remove("dragover");
             });
             this.modalBatchDropzone.addEventListener("drop", (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 this.modalBatchDropzone.classList.remove("dragover");
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    this.handleBatchFiles(Array.from(e.dataTransfer.files));
+                    this.addUploadedFiles(Array.from(e.dataTransfer.files));
                 }
             });
-            this.modalBatchDropzone.addEventListener("click", () => {
-                // Default trigger GP file picker
-                this.slotInputs.gp.click();
+            this.modalBatchDropzone.addEventListener("click", (e) => {
+                if (e.target.tagName !== "LABEL" && e.target.tagName !== "INPUT") {
+                    this.modalMultiFileInput?.click();
+                }
             });
+        }
+
+        // Support dropping files anywhere on the ingest modal dialog
+        const modalDialog = this.ingestModalBackdrop?.querySelector(".modal-dialog");
+        if (modalDialog) {
+            modalDialog.addEventListener("dragover", (e) => {
+                e.preventDefault();
+            });
+            modalDialog.addEventListener("drop", (e) => {
+                e.preventDefault();
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    this.addUploadedFiles(Array.from(e.dataTransfer.files));
+                }
+            });
+        }
+
+        // Clear All button
+        if (this.btnClearAllSlots) {
+            this.btnClearAllSlots.addEventListener("click", () => this.clearAllUploadedFiles());
         }
 
         // Fuse & Build UMS Button
@@ -490,118 +525,602 @@ class App {
         this.ingestModalBackdrop.classList.remove("active");
     }
 
-    async handleBatchFiles(files) {
-        for (const file of files) {
-            const name = file.name.toLowerCase();
-            let targetSlot = null;
+    async addUploadedFiles(fileList) {
+        for (const file of fileList) {
+            // Avoid duplicate by name and size
+            const exists = this.uploadedFiles.some(f => f.name === file.name && f.size === file.size);
+            if (exists) continue;
 
-            if (name.endsWith(".gp") || name.endsWith(".gpx") || name.endsWith(".gp5") || name.endsWith(".gp4") || name.endsWith(".gp3") || name.endsWith(".gpif") || name.endsWith(".xml")) {
-                targetSlot = "gp";
-            } else if (name.includes("chord") || name.endsWith(".chordpro") || name.endsWith(".txt")) {
-                targetSlot = "chords";
-            } else if (name.includes("vocal") || name.includes("melody")) {
-                targetSlot = "vocals";
-            } else if (name.includes("piano") || name.includes("score")) {
-                targetSlot = "piano";
-            } else if (name.endsWith(".pdf")) {
-                // Assign to first empty PDF slot
-                if (!this.slotFiles.chords) targetSlot = "chords";
-                else if (!this.slotFiles.vocals) targetSlot = "vocals";
-                else if (!this.slotFiles.piano) targetSlot = "piano";
-                else targetSlot = "chords";
-            }
-
-            if (targetSlot) {
-                await this.handleSlotFile(file, targetSlot);
-            }
-        }
-    }
-
-    async handleSlotFile(file, slotKey) {
-        try {
             const buffer = await file.arrayBuffer();
-            let parsedData = null;
+            const fileType = classifyFileType(file.name);
+            const id = "src_" + Math.random().toString(36).substring(2, 9);
 
-            if (slotKey === "gp") {
-                parsedData = await parseGuitarProFile(buffer);
-                this.slotFiles.gp = { file, buffer, parsedData };
-                this.updateSlotUI("gp", file.name, `Tempo: ${parsedData.tempo} BPM | Tracks: ${parsedData.tracks.length}`);
-            } else if (slotKey === "chords") {
-                parsedData = await parsePdfMusic(buffer, file.name);
-                this.slotFiles.chords = { file, buffer, parsedData };
-                const key = parsedData.metadata.key ? `Key: ${parsedData.metadata.key}` : "";
-                const chordsCount = `${parsedData.metadata.chords_detected.length} Chords`;
-                this.updateSlotUI("chords", file.name, `${key} ${chordsCount}`.trim());
-            } else if (slotKey === "vocals") {
-                parsedData = await parsePdfMusic(buffer, file.name);
-                this.slotFiles.vocals = { file, buffer, parsedData };
-                this.updateSlotUI("vocals", file.name, `${parsedData.structure.length} Sections detected`);
-            } else if (slotKey === "piano") {
-                parsedData = await parsePdfMusic(buffer, file.name);
-                this.slotFiles.piano = { file, buffer, parsedData };
-                this.updateSlotUI("piano", file.name, `Piano score loaded (${Math.round(file.size / 1024)} KB)`);
-            }
-
-            this.checkFuseReadyState();
-            this.showToast(`Loaded ${file.name} into ${slotKey.toUpperCase()} slot`);
-        } catch (err) {
-            console.error(`Error loading slot ${slotKey}:`, err);
-            this.showToast(`Error reading ${file.name}: ${err.message}`);
+            this.uploadedFiles.push({
+                id,
+                file,
+                name: file.name,
+                size: file.size,
+                buffer,
+                fileType,
+                parsedAst: null
+            });
         }
-    }
 
-    updateSlotUI(slotKey, fileName, metaText) {
-        const card = this.slotCards[slotKey];
-        const content = this.slotContents[slotKey];
-        if (!card || !content) return;
-
-        card.classList.add("loaded");
-        content.innerHTML = `
-            <div class="slot-file-name">📄 ${fileName}</div>
-            <div class="slot-file-meta">${metaText}</div>
-        `;
-
-        const clearBtn = card.querySelector(".btn-clear-slot");
-        if (clearBtn) clearBtn.style.display = "inline-flex";
-    }
-
-    clearSlot(slotKey) {
-        this.slotFiles[slotKey] = null;
-        const card = this.slotCards[slotKey];
-        const content = this.slotContents[slotKey];
-        if (card && content) {
-            card.classList.remove("loaded");
-            const placeholders = {
-                gp: "Drop .gp, .gpx, or .gpif file",
-                chords: "Drop chords.pdf or lead sheet",
-                vocals: "Drop vocals.pdf score",
-                piano: "Drop piano.pdf score"
-            };
-            content.innerHTML = `<div class="slot-placeholder-text">${placeholders[slotKey]}</div>`;
-
-            const clearBtn = card.querySelector(".btn-clear-slot");
-            if (clearBtn) clearBtn.style.display = "none";
-        }
+        this.renderUploadedFilesList();
         this.checkFuseReadyState();
     }
 
-    clearAllSlots() {
-        Object.keys(this.slotFiles).forEach(k => this.clearSlot(k));
+    removeUploadedFile(fileId) {
+        this.uploadedFiles = this.uploadedFiles.filter(f => f.id !== fileId);
+        this.renderUploadedFilesList();
+        this.checkFuseReadyState();
+    }
+
+    clearAllUploadedFiles() {
+        this.uploadedFiles = [];
+        this.renderUploadedFilesList();
+        this.checkFuseReadyState();
     }
 
     checkFuseReadyState() {
-        // Can fuse if at least GP is loaded, or if Chords PDF is loaded
-        const canFuse = Boolean(this.slotFiles.gp || this.slotFiles.chords);
+        const canFuse = this.uploadedFiles.length > 0;
         if (this.btnFuseUms) {
             this.btnFuseUms.disabled = !canFuse;
         }
     }
 
-    async fuseAndApplyUms() {
-        try {
-            this.showToast("Synthesizing multi-source UMS...");
+    renderUploadedFilesList() {
+        if (this.uploadedFilesCount) {
+            this.uploadedFilesCount.textContent = this.uploadedFiles.length;
+        }
 
-            let gpScore = this.slotFiles.gp?.parsedData;
+        if (!this.uploadedFilesList) return;
+
+        if (this.uploadedFiles.length === 0) {
+            this.uploadedFilesList.innerHTML = `
+                <div class="empty-files-placeholder">
+                    No files uploaded yet. Drag & drop files above or click Browse to begin.
+                </div>
+            `;
+            return;
+        }
+
+        this.uploadedFilesList.innerHTML = "";
+
+        const getIconForType = (type, name) => {
+            const ext = (name.split(".").pop() || "").toLowerCase();
+            if (type === "guitar_pro" || ["gp", "gpx", "gp5", "gp4", "gp3", "gpif"].includes(ext)) return "🎸";
+            if (type === "chord_sheet_pdf" || ext === "pdf") return "📑";
+            if (type === "musicxml" || ext === "xml") return "🎼";
+            if (type === "midi" || ["mid", "midi"].includes(ext)) return "🎹";
+            if (type === "chordpro" || ["chordpro", "pro", "cho"].includes(ext)) return "📄";
+            return "📝";
+        };
+
+        const getBadgeText = (type, name) => {
+            const ext = (name.split(".").pop() || "").toLowerCase();
+            if (type === "guitar_pro") return "Guitar Pro";
+            if (type === "chord_sheet_pdf") return "PDF Lead / Score";
+            if (type === "vocal_score_pdf") return "Vocal Score";
+            if (type === "musicxml") return "MusicXML";
+            if (type === "midi") return "MIDI";
+            if (type === "chordpro") return "ChordPro";
+            return ext.toUpperCase();
+        };
+
+        const formatSize = (bytes) => {
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        };
+
+        this.uploadedFiles.forEach(f => {
+            const item = document.createElement("div");
+            item.className = "uploaded-file-item";
+            item.innerHTML = `
+                <div class="file-info-group">
+                    <span class="file-icon">${getIconForType(f.fileType, f.name)}</span>
+                    <div class="file-text-meta">
+                        <span class="file-name-text" title="${f.name}">${f.name}</span>
+                        <div class="file-sub-meta">
+                            <span>${formatSize(f.size)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="file-item-actions">
+                    <span class="file-format-badge">${getBadgeText(f.fileType, f.name)}</span>
+                    <button class="btn-remove-file" title="Remove file" data-id="${f.id}">✕</button>
+                </div>
+            `;
+
+            item.querySelector(".btn-remove-file").addEventListener("click", () => {
+                this.removeUploadedFile(f.id);
+            });
+
+            this.uploadedFilesList.appendChild(item);
+        });
+    }
+
+    /* --------------------------------------------------------------------------
+       LLM Provider & Authority Modal Controller
+       -------------------------------------------------------------------------- */
+    initLlmModal() {
+        if (!this.btnOpenLlmModal) return;
+
+        this.btnOpenLlmModal.addEventListener("click", () => this.openLlmModal());
+        this.btnCloseLlmModal?.addEventListener("click", () => this.closeLlmModal());
+        this.llmModalBackdrop?.addEventListener("click", (e) => {
+            if (e.target === this.llmModalBackdrop) this.closeLlmModal();
+        });
+
+        // Load persisted LLM state into form
+        const cfg = this.fusionHarness.llmClient;
+        if (this.llmProviderSelect) this.llmProviderSelect.value = cfg.provider;
+        if (this.llmModelInput) this.llmModelInput.value = cfg.model;
+        if (this.llmApiKeyInput) this.llmApiKeyInput.value = cfg.apiKey;
+
+        this.authorityRadios?.forEach(r => {
+            r.checked = (r.value === cfg.authorityLevel);
+            const parentCard = r.closest(".authority-card");
+            if (parentCard) parentCard.classList.toggle("selected", r.checked);
+            
+            r.addEventListener("change", () => {
+                this.authorityRadios.forEach(other => {
+                    other.closest(".authority-card")?.classList.toggle("selected", other.checked);
+                });
+            });
+        });
+
+        // Model Discovery: Ping server to fetch available models
+        this.btnFetchModels?.addEventListener("click", () => this.fetchDiscoveredModels(true));
+
+        // When provider changes, optionally auto-fetch models or update defaults
+        this.llmProviderSelect?.addEventListener("change", () => {
+            const prov = this.llmProviderSelect.value;
+            if (prov === "openrouter") {
+                if (!this.llmModelInput.value.includes("/")) {
+                    this.llmModelInput.value = "google/gemini-2.5-flash";
+                }
+            } else if (prov === "gemini") {
+                this.llmModelInput.value = "gemini-2.5-flash";
+            } else if (prov === "openai") {
+                this.llmModelInput.value = "gpt-4o";
+            }
+            if (this.modelsFetchStatus) this.modelsFetchStatus.textContent = "";
+            // Auto fetch if openrouter or key is present
+            if (prov === "openrouter" || (this.llmApiKeyInput && this.llmApiKeyInput.value.trim())) {
+                this.fetchDiscoveredModels(false);
+            }
+        });
+
+        // When model selected from dropdown, update text input
+        this.llmModelDropdown?.addEventListener("change", () => {
+            if (this.llmModelDropdown.value) {
+                this.llmModelInput.value = this.llmModelDropdown.value;
+            }
+        });
+
+        // Model Hint Chips
+        document.querySelectorAll(".badge-hint").forEach(chip => {
+            chip.addEventListener("click", () => {
+                const mod = chip.getAttribute("data-model");
+                if (mod && this.llmModelInput) {
+                    this.llmModelInput.value = mod;
+                    if (this.llmModelDropdown) this.llmModelDropdown.value = mod;
+                }
+            });
+        });
+
+        // Toggle Key Visibility
+        this.btnToggleKeyVisibility?.addEventListener("click", () => {
+            if (!this.llmApiKeyInput) return;
+            const isPassword = this.llmApiKeyInput.type === "password";
+            this.llmApiKeyInput.type = isPassword ? "text" : "password";
+            this.btnToggleKeyVisibility.textContent = isPassword ? "🔒" : "👁";
+        });
+
+        // Save LLM Config
+        this.btnSaveLlmConfig?.addEventListener("click", () => {
+            const selectedAuthority = document.querySelector('input[name="authority-level"]:checked')?.value || "balanced";
+            this.fusionHarness.llmClient.saveConfig({
+                provider: this.llmProviderSelect?.value,
+                model: this.llmModelInput?.value,
+                apiKey: this.llmApiKeyInput?.value,
+                authorityLevel: selectedAuthority
+            });
+            this.updateMetricPills();
+            this.closeLlmModal();
+            this.showToast("✨ AI Configuration Saved!");
+        });
+
+        // Test Connection
+        this.btnTestLlmConnection?.addEventListener("click", async () => {
+            this.btnTestLlmConnection.disabled = true;
+            this.btnTestLlmConnection.textContent = "Testing...";
+            try {
+                const testResp = await this.fusionHarness.llmClient.reconcileConflicts(
+                    "You are a musicology assistant.",
+                    { test: true, conflicts_to_reconcile: [] }
+                );
+                this.showToast("✅ AI Connection Succeeded!");
+            } catch (err) {
+                this.showToast(`❌ Connection Error: ${err.message}`);
+            } finally {
+                this.btnTestLlmConnection.disabled = false;
+                this.btnTestLlmConnection.textContent = "🔌 Test Connection";
+            }
+        });
+    }
+
+    async fetchDiscoveredModels(showToastNotification = true) {
+        if (!this.btnFetchModels) return;
+
+        const provider = this.llmProviderSelect?.value || "openrouter";
+        const apiKey = this.llmApiKeyInput?.value || "";
+
+        this.btnFetchModels.disabled = true;
+        this.btnFetchModels.textContent = "🔄 Pinging...";
+        if (this.modelsFetchStatus) {
+            this.modelsFetchStatus.className = "models-status-text";
+            this.modelsFetchStatus.textContent = "Pinging API server...";
+        }
+
+        try {
+            const models = await this.fusionHarness.llmClient.fetchAvailableModels(provider, apiKey);
+
+            // Populate Datalist
+            if (this.availableModelsList) {
+                this.availableModelsList.innerHTML = "";
+                models.forEach(m => {
+                    const opt = document.createElement("option");
+                    opt.value = m.id;
+                    const ctx = m.contextLength > 0 ? ` (${Math.round(m.contextLength / 1000)}k ctx)` : "";
+                    opt.textContent = `${m.name}${ctx}`;
+                    this.availableModelsList.appendChild(opt);
+                });
+            }
+
+            // Populate Select Dropdown
+            if (this.llmModelDropdown) {
+                this.llmModelDropdown.innerHTML = `<option value="">── Select from ${models.length} Discovered Models ──</option>`;
+                
+                // Group by organization/brand if OpenRouter
+                models.forEach(m => {
+                    const opt = document.createElement("option");
+                    opt.value = m.id;
+                    const ctx = m.contextLength > 0 ? ` [${Math.round(m.contextLength / 1000)}k ctx]` : "";
+                    opt.textContent = `${m.name || m.id}${ctx} (${m.id})`;
+                    this.llmModelDropdown.appendChild(opt);
+                });
+
+                this.llmModelDropdown.style.display = "block";
+
+                // If current model matches an option, select it
+                if (this.llmModelInput && this.llmModelInput.value) {
+                    this.llmModelDropdown.value = this.llmModelInput.value;
+                }
+            }
+
+            if (this.modelsFetchStatus) {
+                this.modelsFetchStatus.className = "models-status-text success";
+                this.modelsFetchStatus.textContent = `✅ ${models.length} models discovered`;
+            }
+
+            if (showToastNotification) {
+                this.showToast(`✨ Successfully discovered ${models.length} models from ${provider.toUpperCase()}`);
+            }
+        } catch (err) {
+            console.error("Model fetch error:", err);
+            if (this.modelsFetchStatus) {
+                this.modelsFetchStatus.className = "models-status-text error";
+                this.modelsFetchStatus.textContent = `❌ ${err.message}`;
+            }
+            if (showToastNotification) {
+                this.showToast(`Fetch error: ${err.message}`);
+            }
+        } finally {
+            this.btnFetchModels.disabled = false;
+            this.btnFetchModels.textContent = "🔄 Ping & Fetch Models";
+        }
+    }
+
+    openLlmModal() {
+        this.llmModalBackdrop?.classList.add("active");
+        // Trigger background model fetch on modal open if models not yet populated
+        if (this.availableModelsList && this.availableModelsList.children.length === 0) {
+            this.fetchDiscoveredModels(false);
+        }
+    }
+
+    closeLlmModal() {
+        this.llmModalBackdrop?.classList.remove("active");
+    }
+
+    /* --------------------------------------------------------------------------
+       Live Instrumentation Traces & Telemetry
+       -------------------------------------------------------------------------- */
+    initLiveTraces() {
+        this.fusionHarness.llmClient.setTraceListener((trace) => {
+            if (!this.liveTracesStream) return;
+            const entry = document.createElement("div");
+            entry.className = `trace-entry ${trace.type}`;
+            entry.innerHTML = `
+                <span class="trace-time">${trace.time}</span>
+                <span class="trace-msg">${trace.message}</span>
+            `;
+            this.liveTracesStream.appendChild(entry);
+            this.liveTracesStream.scrollTop = this.liveTracesStream.scrollHeight;
+        });
+
+        this.btnClearTraces?.addEventListener("click", () => {
+            if (this.liveTracesStream) {
+                this.liveTracesStream.innerHTML = `
+                    <div class="trace-entry info">
+                        <span class="trace-time">${new Date().toLocaleTimeString()}</span>
+                        <span class="trace-msg">Console cleared.</span>
+                    </div>
+                `;
+            }
+        });
+    }
+
+    /* --------------------------------------------------------------------------
+       Discrepancy Inspector & User Steering HUD
+       -------------------------------------------------------------------------- */
+    initDiscrepancyHud() {
+        // Filter Chips
+        this.filterChips?.forEach(chip => {
+            chip.addEventListener("click", () => {
+                this.filterChips.forEach(c => c.classList.remove("active"));
+                chip.classList.add("active");
+                this.activeConflictFilter = chip.getAttribute("data-filter") || "all";
+                this.renderDiscrepancyHud();
+            });
+        });
+
+        // Re-run AI Arbitration
+        this.btnReRunArbitration?.addEventListener("click", async () => {
+            this.userSteerings = {};
+            await this.fuseAndApplyUms();
+        });
+
+        // Accept All AI Proposals
+        this.btnAcceptAllAi?.addEventListener("click", () => {
+            (this.fusionHarness.discrepancies || []).forEach(d => {
+                if (d.proposedResolution) {
+                    this.userSteerings[d.conflictId] = d.proposedResolution;
+                    d.userOverride = d.proposedResolution;
+                }
+            });
+            this.fuseAndApplyUms();
+            this.showToast("Accepted all AI proposed resolutions!");
+        });
+    }
+
+    updateMetricPills() {
+        const total = this.fusionHarness.discrepancies?.length || 0;
+        const steered = Object.keys(this.userSteerings).length;
+        const cfg = this.fusionHarness.llmClient;
+
+        if (this.metricConflictCount) this.metricConflictCount.textContent = total;
+        if (this.metricAuthorityMode) this.metricAuthorityMode.textContent = cfg.authorityLevel.toUpperCase();
+        if (this.metricLlmModel) this.metricLlmModel.textContent = cfg.model.split("/").pop();
+        if (this.metricSteeredCount) this.metricSteeredCount.textContent = steered;
+
+        if (this.tabConflictBadge) {
+            this.tabConflictBadge.textContent = total;
+            this.tabConflictBadge.style.display = total > 0 ? "inline-flex" : "none";
+        }
+    }
+
+    renderDiscrepancyHud() {
+        this.updateMetricPills();
+        if (!this.discrepancyCardsList) return;
+
+        const allDiscrepancies = this.fusionHarness.discrepancies || [];
+        
+        // Update filter counters
+        const chordCount = allDiscrepancies.filter(d => d.conflictType === "chord_mismatch").length;
+        const capoCount = allDiscrepancies.filter(d => d.conflictType === "capo_key_offset").length;
+        const structCount = allDiscrepancies.filter(d => d.conflictType === "section_structure").length;
+
+        if (this.filterCountAll) this.filterCountAll.textContent = allDiscrepancies.length;
+        if (this.filterCountChord) this.filterCountChord.textContent = chordCount;
+        if (this.filterCountCapo) this.filterCountCapo.textContent = capoCount;
+        if (this.filterCountStructure) this.filterCountStructure.textContent = structCount;
+
+        // Apply active filter
+        const filtered = allDiscrepancies.filter(d => {
+            if (this.activeConflictFilter === "all") return true;
+            return d.conflictType === this.activeConflictFilter;
+        });
+
+        if (filtered.length === 0) {
+            this.discrepancyCardsList.innerHTML = `
+                <div class="empty-conflicts-state">
+                    <div class="empty-icon">✨</div>
+                    <h4>No conflicts in this view</h4>
+                    <p>All sources are aligned or no conflicts match the active filter '${this.activeConflictFilter}'.</p>
+                </div>
+            `;
+            return;
+        }
+
+        this.discrepancyCardsList.innerHTML = "";
+        filtered.forEach(d => {
+            const isSteered = d.userOverride !== null;
+            const currentResolution = d.getEffectiveResolution();
+            const gpVal = d.candidates.guitar_pro || "—";
+            const pdfVal = d.candidates.chord_sheet_pdf || d.candidates.vocal_score_pdf || "—";
+            const confPct = Math.round((d.confidence || 0.8) * 100);
+
+            const card = document.createElement("div");
+            card.className = `conflict-card severity-${d.severity} ${isSteered ? 'steered' : ''}`;
+            card.innerHTML = `
+                <div class="card-top-meta">
+                    <div class="card-location-badge">
+                        Measure ${d.measureNumber} • Beat ${d.beatDivision} (${d.sectionName})
+                    </div>
+                    <div class="card-type-tags">
+                        <span class="card-type-tag">${d.conflictType.replace(/_/g, " ")}</span>
+                        ${isSteered ? '<span class="card-type-tag steered-tag">🎯 User Steered</span>' : ''}
+                    </div>
+                </div>
+
+                <div class="candidate-compare-grid">
+                    <div class="candidate-box">
+                        <span class="cand-label">🎸 Guitar Pro</span>
+                        <span class="cand-value">${gpVal}</span>
+                    </div>
+                    <div class="candidate-box">
+                        <span class="cand-label">📑 PDF Lead Sheet</span>
+                        <span class="cand-value">${pdfVal}</span>
+                    </div>
+                    <div class="candidate-box">
+                        <span class="cand-label">✨ Applied Resolution</span>
+                        <span class="cand-value resolution">${currentResolution}</span>
+                    </div>
+                </div>
+
+                <div class="ai-rationale-box">
+                    <div class="ai-rationale-header">
+                        <span>🤖 Musical Rationale</span>
+                        <div class="confidence-gauge">
+                            <span>Confidence: ${confPct}%</span>
+                            <div class="confidence-bar"><div class="confidence-fill" style="width:${confPct}%"></div></div>
+                        </div>
+                    </div>
+                    <div>${d.musicalRationale || d.description}</div>
+                </div>
+
+                <div class="card-actions-toolbar">
+                    <div class="steer-btn-group">
+                        <button class="btn btn-secondary btn-sm btn-steer-gp" data-conf="${d.conflictId}">Use GP (${gpVal})</button>
+                        <button class="btn btn-secondary btn-sm btn-steer-pdf" data-conf="${d.conflictId}">Use PDF (${pdfVal})</button>
+                        <button class="btn btn-primary btn-sm btn-steer-accept" data-conf="${d.conflictId}">Accept AI (${d.proposedResolution})</button>
+                    </div>
+                    <div class="custom-steer-form">
+                        <input type="text" class="custom-steer-input" placeholder="Custom" value="${isSteered ? d.userOverride : ''}">
+                        <button class="btn btn-ghost btn-sm btn-steer-custom" data-conf="${d.conflictId}">Set</button>
+                    </div>
+                </div>
+            `;
+
+            // Wire up interactive steer buttons
+            card.querySelector(".btn-steer-gp")?.addEventListener("click", () => this.steerDiscrepancy(d.conflictId, gpVal));
+            card.querySelector(".btn-steer-pdf")?.addEventListener("click", () => this.steerDiscrepancy(d.conflictId, pdfVal));
+            card.querySelector(".btn-steer-accept")?.addEventListener("click", () => this.steerDiscrepancy(d.conflictId, d.proposedResolution));
+            
+            const customInput = card.querySelector(".custom-steer-input");
+            card.querySelector(".btn-steer-custom")?.addEventListener("click", () => {
+                if (customInput && customInput.value.trim()) {
+                    this.steerDiscrepancy(d.conflictId, customInput.value.trim());
+                }
+            });
+
+            this.discrepancyCardsList.appendChild(card);
+        });
+
+        // Update Telemetry stats
+        const lastTelem = this.fusionHarness.llmClient.telemetryHistory.slice(-1)[0];
+        if (lastTelem) {
+            if (this.telemLatency) this.telemLatency.textContent = `${lastTelem.latencyMs} ms`;
+            if (this.telemPromptTokens) this.telemPromptTokens.textContent = lastTelem.tokens?.prompt_tokens || lastTelem.tokens?.promptTokenCount || "N/A";
+            if (this.telemCompTokens) this.telemCompTokens.textContent = lastTelem.tokens?.completion_tokens || lastTelem.tokens?.candidatesTokenCount || "N/A";
+        }
+    }
+
+    setAiWorkingState(isWorking, statusMsg = "AI Arbitrating...") {
+        if (!this.globalAiStatusPill) return;
+
+        if (isWorking) {
+            this.globalAiStatusPill.className = "ai-status-pill working";
+            if (this.globalAiStatusText) this.globalAiStatusText.textContent = statusMsg;
+        } else {
+            this.globalAiStatusPill.className = "ai-status-pill success";
+            if (this.globalAiStatusText) this.globalAiStatusText.textContent = statusMsg;
+            setTimeout(() => {
+                if (this.globalAiStatusPill.className.includes("success")) {
+                    this.globalAiStatusPill.className = "ai-status-pill idle";
+                    if (this.globalAiStatusText) this.globalAiStatusText.textContent = "AI Ready";
+                }
+            }, 3500);
+        }
+    }
+
+    setIngestProgress(visible, statusMsg = "", percent = 0) {
+        if (!this.ingestProgressContainer) return;
+        this.ingestProgressContainer.style.display = visible ? "flex" : "none";
+        if (this.ingestProgressText) this.ingestProgressText.textContent = statusMsg;
+        if (this.ingestProgressBarFill) this.ingestProgressBarFill.style.width = `${percent}%`;
+    }
+
+    async steerDiscrepancy(conflictId, chosenValue) {
+        this.userSteerings[conflictId] = chosenValue;
+        const disc = this.fusionHarness.discrepancies.find(d => d.conflictId === conflictId);
+        if (disc) {
+            disc.userOverride = chosenValue;
+            disc.isResolved = true;
+        }
+
+        // Re-fuse locally
+        await this.fuseAndApplyUms();
+        this.showToast(`Steered ${conflictId} to '${chosenValue}'`);
+    }
+
+    async fuseAndApplyUms() {
+        const modelName = (this.fusionHarness.llmClient.model || "AI Model").split("/").pop();
+
+        try {
+            if (this.uploadedFiles.length === 0 && !this.currentScore) {
+                throw new Error("Please upload at least one song file.");
+            }
+
+            // Set Loading UI States
+            if (this.btnFuseUms) {
+                this.btnFuseUms.classList.add("is-loading");
+                this.btnFuseUms.disabled = true;
+            }
+            this.setIngestProgress(true, "1/4 Parsing source documents & extracting layers...", 25);
+            this.setAiWorkingState(true, `Querying ${modelName}...`);
+            this.showToast(`Synthesizing multi-source UMS with ${modelName}...`);
+
+            let gpScore = null;
+            let chordDoc = null;
+            let vocalDoc = null;
+            let primaryGpBuffer = null;
+
+            // Process all uploaded files dynamically
+            for (const item of this.uploadedFiles) {
+                const name = item.name.toLowerCase();
+                const type = item.fileType;
+
+                if (type === "guitar_pro" || name.endsWith(".gp") || name.endsWith(".gpx") || name.endsWith(".gp5") || name.endsWith(".gp4") || name.endsWith(".gp3") || name.endsWith(".gpif") || name.endsWith(".xml")) {
+                    if (!item.parsedAst) {
+                        item.parsedAst = await parseGuitarProFile(item.buffer);
+                    }
+                    if (!gpScore) {
+                        gpScore = item.parsedAst;
+                        primaryGpBuffer = item.buffer;
+                    }
+                    await this.fusionHarness.sourceManager.addSource(item.name, item.buffer, item.parsedAst, "primary_rhythm");
+                } else if (name.endsWith(".pdf") || name.endsWith(".chordpro") || name.endsWith(".txt")) {
+                    if (!item.parsedAst) {
+                        item.parsedAst = await parsePdfMusic(item.buffer, item.name);
+                    }
+                    if (name.includes("vocal") || name.includes("melody")) {
+                        vocalDoc = item.parsedAst;
+                        await this.fusionHarness.sourceManager.addSource(item.name, item.buffer, item.parsedAst, "vocal_melody");
+                    } else {
+                        if (!chordDoc) chordDoc = item.parsedAst;
+                        await this.fusionHarness.sourceManager.addSource(item.name, item.buffer, item.parsedAst, "harmonic_lead");
+                    }
+                } else {
+                    // Supplemental document
+                    await this.fusionHarness.sourceManager.addSource(item.name, item.buffer, null, "supplemental");
+                }
+            }
+
             if (!gpScore && this.currentScore) {
                 gpScore = this.currentScore;
             }
@@ -610,21 +1129,29 @@ class App {
                 throw new Error("Please provide at least one Guitar Pro file for the rhythmic notation grid.");
             }
 
-            const chordsData = this.slotFiles.chords?.parsedData || null;
-            const vocalsData = this.slotFiles.vocals?.parsedData || null;
+            this.setIngestProgress(true, `2/4 Analyzing macro roadmap & detecting cross-source conflicts...`, 55);
 
-            // Synthesize complete UMS
-            const completeUms = buildCompleteUmsClient(gpScore, chordsData, vocalsData);
+            // Synthesize complete UMS via FusionHarness (Stage 3 & 4)
+            this.setIngestProgress(true, `3/4 Reconciling with ${modelName}...`, 75);
+            const completeUms = await this.fusionHarness.fuseMultiSource({
+                gpScore,
+                chordDoc,
+                vocalDoc,
+                userSteerings: this.userSteerings
+            });
+
+            this.setIngestProgress(true, "4/4 Compiling canonical UMS SongGraph...", 95);
+
             this.currentUms = completeUms;
             this.currentScore = gpScore;
             this.currentScore.canonical = completeUms.canonical;
             this.currentScore.structure = completeUms.structure;
 
             // Load AlphaTab if raw bytes available
-            if (this.slotFiles.gp?.buffer && this.alphaTabApi) {
-                this.currentRawBytes = this.slotFiles.gp.buffer;
+            if (primaryGpBuffer && this.alphaTabApi) {
+                this.currentRawBytes = primaryGpBuffer;
                 try {
-                    this.alphaTabApi.load(new Uint8Array(this.slotFiles.gp.buffer));
+                    this.alphaTabApi.load(new Uint8Array(primaryGpBuffer));
                 } catch (e) {
                     console.warn("AlphaTab render warning:", e);
                 }
@@ -637,12 +1164,21 @@ class App {
             this.renderSummary();
             this.renderUms();
             this.renderXml();
+            this.renderDiscrepancyHud();
 
+            this.setAiWorkingState(false, "✨ AI Reconciled");
             this.closeIngestModal();
-            this.showToast("✨ Complete UMS Synthesized Successfully!");
+            this.showToast("✨ Canonical UMS Synthesized & Reconciled!");
         } catch (err) {
             console.error("Fusion error:", err);
+            this.setAiWorkingState(false, "❌ AI Failed");
             this.showToast(`Fusion Error: ${err.message}`);
+        } finally {
+            if (this.btnFuseUms) {
+                this.btnFuseUms.classList.remove("is-loading");
+                this.btnFuseUms.disabled = (this.uploadedFiles.length === 0);
+            }
+            setTimeout(() => this.setIngestProgress(false), 600);
         }
     }
 
@@ -650,29 +1186,32 @@ class App {
         try {
             this.showToast("Fetching Ben Rector Multi-Source Bundle...");
 
-            // 1. Fetch GP Score
-            const resGp = await fetch("samples/ben_rector_love_like_this.gp");
-            const bufGp = await resGp.arrayBuffer();
-            const parsedGp = await parseGuitarProFile(bufGp);
-            this.slotFiles.gp = { file: { name: "Ben Rector-Love Like This.gp" }, buffer: bufGp, parsedData: parsedGp };
-            this.updateSlotUI("gp", "Ben Rector-Love Like This.gp", `Tempo: ${parsedGp.tempo} BPM | 118 Bars`);
+            const bundleFiles = [
+                { url: "samples/ben_rector_love_like_this.gp", name: "Ben Rector-Love Like This.gp" },
+                { url: "samples/ben_rector_chords.pdf", name: "love like this chords.pdf" },
+                { url: "samples/ben_rector_vocals.pdf", name: "love like this vocals.pdf" },
+                { url: "samples/ben_rector_piano.pdf", name: "love like this piano.pdf" }
+            ];
 
-            // 2. Fetch Chords PDF
-            const resChords = await fetch("samples/ben_rector_chords.pdf");
-            const bufChords = await resChords.arrayBuffer();
-            const parsedChords = await parsePdfMusic(bufChords, "love like this chords.pdf");
-            this.slotFiles.chords = { file: { name: "love like this chords.pdf" }, buffer: bufChords, parsedData: parsedChords };
-            this.updateSlotUI("chords", "love like this chords.pdf", `Key: ${parsedChords.metadata.key || "D"} | ${parsedChords.metadata.chords_detected.length} Chords`);
+            this.uploadedFiles = [];
+            for (const b of bundleFiles) {
+                const res = await fetch(b.url);
+                const buf = await res.arrayBuffer();
+                const fileType = classifyFileType(b.name);
+                this.uploadedFiles.push({
+                    id: "src_" + Math.random().toString(36).substring(2, 9),
+                    file: { name: b.name, size: buf.byteLength },
+                    name: b.name,
+                    size: buf.byteLength,
+                    buffer: buf,
+                    fileType,
+                    parsedAst: null
+                });
+            }
 
-            // 3. Fetch Vocals PDF
-            const resVocals = await fetch("samples/ben_rector_vocals.pdf");
-            const bufVocals = await resVocals.arrayBuffer();
-            const parsedVocals = await parsePdfMusic(bufVocals, "love like this vocals.pdf");
-            this.slotFiles.vocals = { file: { name: "love like this vocals.pdf" }, buffer: bufVocals, parsedData: parsedVocals };
-            this.updateSlotUI("vocals", "love like this vocals.pdf", `${parsedVocals.structure.length} Sections mapped`);
-
+            this.renderUploadedFilesList();
             this.checkFuseReadyState();
-            this.showToast("Bundle files loaded into slots! Click Fuse & Build UMS.");
+            this.showToast("✨ Ben Rector Multi-Source Bundle Loaded (4 files)!");
         } catch (err) {
             console.error("Failed to load sample bundle:", err);
             this.showToast(`Error loading bundle: ${err.message}`);

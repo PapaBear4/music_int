@@ -713,6 +713,19 @@ class GuitarProScore:
 
         return "\n".join(lines)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes score structure and tracks into a standard dictionary."""
+        return {
+            "metadata": self.metadata,
+            "tempo": self.tempo,
+            "tracks": self.tracks,
+            "masterbars": self.masterbars,
+            "sections": self.sections,
+            "bars": self.get_track_bars(0) if self.tracks else [],
+            "has_pickup_measure": self.has_pickup_measure,
+            "primary_time_signature": self.primary_time_signature
+        }
+
     def to_ums_json(self) -> Dict[str, Any]:
         """Converts score into Unified Music Schema (UMS) SongGraph JSON with complete tri-layer structure."""
         primary_track = self.tracks[0] if self.tracks else {
