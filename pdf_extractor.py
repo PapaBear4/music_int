@@ -49,12 +49,12 @@ def extract_text_from_pdf(pdf_path: str, use_ocr: bool = True) -> str:
         except Exception:
             pass
 
-    # If text is substantial (> 100 non-whitespace chars), return it
-    if len(re.sub(r'\s+', '', text)) > 100 and not use_ocr:
+    # If text is substantial (> 100 non-whitespace chars), return immediately
+    if len(re.sub(r'\s+', '', text)) > 100:
         return text
 
-    # Otherwise, fallback to OCR if pdftoppm and tesseract are installed
-    if shutil.which("pdftoppm") and shutil.which("tesseract"):
+    # Otherwise, fallback to OCR if enabled and pdftoppm + tesseract are installed
+    if use_ocr and shutil.which("pdftoppm") and shutil.which("tesseract"):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = os.path.join(tmpdir, "page")
             subprocess.run(["pdftoppm", "-png", "-r", "150", pdf_path, prefix], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -171,7 +171,7 @@ export function convertToUms(score) {
             genre: score.metadata?.genre || null,
             transcriber: canonicalTabber,
             copyright: canonicalCopyright,
-            original_key: "Am",
+            original_key: score.metadata?.key || "D",
             original_tempo_bpm: score.tempo,
             original_time_signature: score.getPrimaryTimeSignature ? score.getPrimaryTimeSignature() : (score.masterbars[0]?.time || "4/4"),
             original_tuning: primaryTrack.tuningNames.join(" "),

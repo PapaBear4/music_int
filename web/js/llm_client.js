@@ -22,12 +22,13 @@ export class LlmClient {
         this.apiKey = localStorage.getItem("ums_llm_api_key") || "";
         this.model = localStorage.getItem("ums_llm_model") || "google/gemini-2.5-flash";
         this.temperature = parseFloat(localStorage.getItem("ums_llm_temp") || "0.2");
+        this.serviceTier = localStorage.getItem("ums_llm_service_tier") || "standard"; // Explicitly 'standard' to avoid opportunistic flex tier
         this.authorityLevel = localStorage.getItem("ums_authority_level") || "balanced"; // 'advisory', 'balanced', 'autonomous'
         this.telemetryHistory = [];
         this.onTraceCallback = null;
     }
 
-    saveConfig({ provider, apiKey, model, temperature, authorityLevel }) {
+    saveConfig({ provider, apiKey, model, temperature, serviceTier, authorityLevel }) {
         if (provider !== undefined) {
             this.provider = provider;
             localStorage.setItem("ums_llm_provider", provider);
@@ -43,6 +44,10 @@ export class LlmClient {
         if (temperature !== undefined) {
             this.temperature = temperature;
             localStorage.setItem("ums_llm_temp", temperature.toString());
+        }
+        if (serviceTier !== undefined) {
+            this.serviceTier = serviceTier;
+            localStorage.setItem("ums_llm_service_tier", serviceTier);
         }
         if (authorityLevel !== undefined) {
             this.authorityLevel = authorityLevel;

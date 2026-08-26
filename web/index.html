@@ -150,6 +150,17 @@
                         </div>
 
                         <div class="form-group">
+                            <label for="llm-service-tier-select">Service Tier (Explicit API Capacity Tier):</label>
+                            <select id="llm-service-tier-select" class="form-select">
+                                <option value="standard" selected>Standard Tier (Guaranteed capacity, avoids 503 flex throttling)</option>
+                                <option value="flex">Flex / Opportunistic Tier</option>
+                            </select>
+                            <span class="form-help-text" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; display: block;">
+                                Explicitly defining <code>service_tier="standard"</code> ensures requests run with standard dedicated priority rather than opportunistic flex capacity.
+                            </span>
+                        </div>
+
+                        <div class="form-group">
                             <label for="llm-authority-select">Decision Authority Dial (Sliding Autonomy):</label>
                             <div class="authority-slider-cards">
                                 <label class="authority-card">

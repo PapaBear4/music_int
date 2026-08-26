@@ -147,6 +147,7 @@ class App {
         this.modelsFetchStatus = document.getElementById("models-fetch-status");
         this.availableModelsList = document.getElementById("available-models-list");
         this.llmApiKeyInput = document.getElementById("llm-api-key-input");
+        this.llmServiceTierSelect = document.getElementById("llm-service-tier-select");
         this.btnToggleKeyVisibility = document.getElementById("btn-toggle-key-visibility");
         this.btnSaveLlmConfig = document.getElementById("btn-save-llm-config");
         this.btnTestLlmConnection = document.getElementById("btn-test-llm-connection");
@@ -658,6 +659,7 @@ class App {
         if (this.llmProviderSelect) this.llmProviderSelect.value = cfg.provider;
         if (this.llmModelInput) this.llmModelInput.value = cfg.model;
         if (this.llmApiKeyInput) this.llmApiKeyInput.value = cfg.apiKey;
+        if (this.llmServiceTierSelect) this.llmServiceTierSelect.value = cfg.serviceTier || "standard";
 
         this.authorityRadios?.forEach(r => {
             r.checked = (r.value === cfg.authorityLevel);
@@ -726,6 +728,7 @@ class App {
                 provider: this.llmProviderSelect?.value,
                 model: this.llmModelInput?.value,
                 apiKey: this.llmApiKeyInput?.value,
+                serviceTier: this.llmServiceTierSelect?.value || "standard",
                 authorityLevel: selectedAuthority
             });
             this.updateMetricPills();

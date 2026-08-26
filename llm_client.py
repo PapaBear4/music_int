@@ -45,12 +45,14 @@ class LlmClient:
         provider: str = "openrouter",
         api_key: Optional[str] = None,
         model: str = "google/gemini-2.5-flash",
-        temperature: float = 0.2
+        temperature: float = 0.2,
+        service_tier: str = "standard"
     ):
         self.provider = provider.lower()
         self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENAI_API_KEY")
         self.model = model
         self.temperature = temperature
+        self.service_tier = service_tier  # Explicitly standard tier to avoid opportunistic flex tier throttling
         self.telemetry_history: List[LlmTelemetry] = []
 
     def fetch_available_models(self, provider: Optional[str] = None, api_key: Optional[str] = None) -> List[Dict[str, Any]]:

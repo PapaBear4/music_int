@@ -65,11 +65,7 @@ export function extractMicroMeasureNeighborhood(measureNumber, trackBars, pdfSec
                 fretted_notes: (beat.notes || []).map(n => `str_${n.string}:fret_${n.fret}`)
             }));
 
-            surroundingBars.append ? surroundingBars.append({
-                measure_number: mNum,
-                is_target_measure: (mNum === measureNumber),
-                beats: beatsInfo
-            }) : surroundingBars.push({
+            surroundingBars.push({
                 measure_number: mNum,
                 is_target_measure: (mNum === measureNumber),
                 beats: beatsInfo
