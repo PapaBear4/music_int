@@ -35,7 +35,7 @@ export function classifyFileType(filename) {
         return "midi";
     }
     if (nameLower.endsWith(".pdf")) {
-        if (nameLower.includes("chord") || nameLower.includes("lead") || nameLower.includes("chart")) {
+        if (nameLower.includes("chord") || nameLower.includes("lead") || nameLower.includes("chart") || nameLower.includes("rhythm") || nameLower.includes("tab")) {
             return "chord_sheet_pdf";
         }
         if (nameLower.includes("vocal") || nameLower.includes("melody") || nameLower.includes("sing")) {

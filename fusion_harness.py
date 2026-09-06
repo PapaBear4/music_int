@@ -55,6 +55,12 @@ class FusionHarness:
         self.discrepancies: List[Discrepancy] = []
         self.reconciliation_log: List[Dict[str, Any]] = []
 
+    def reset(self) -> None:
+        """Resets all ingested sources and arbitration state for a new song."""
+        self.source_manager.clear()
+        self.discrepancies.clear()
+        self.reconciliation_log.clear()
+
     def ingest_and_fuse(
         self,
         gp_file: str,
@@ -65,8 +71,10 @@ class FusionHarness:
         """
         Executes end-to-end multi-source fusion.
         """
+        self.reset()
         if on_progress:
             on_progress("Stage 1: Registering sources and extracting ASTs...")
+
 
         # 1. Register Sources
         gp_score = GuitarProScore.from_file(gp_file)

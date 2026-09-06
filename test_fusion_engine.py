@@ -118,7 +118,38 @@ def run_tests():
     ums_auto = harness_auto.ingest_and_fuse(gp_file=gp_path, chord_file=chords_pdf_path)
     print(f"✅ [Autonomous Mode] Requires Agent Intervention: {ums_auto['requires_agent_intervention']}")
     print(f"✅ Total Reconciliation Log Entries: {len(ums_auto['reconciliation_log'])}")
-    print(f"✅ Sources Manifest Entries: {len(ums_auto['sources'])}")
+    # -------------------------------------------------------------
+    # Test 6: Shaboozey Sample Files Ingestion & Measure-Grid UMS Synthesis
+    # -------------------------------------------------------------
+    print("\n--- Test 6: Shaboozey Sample Files Ingestion & Measure-Grid UMS Synthesis ---")
+    shaboozey_pdf = "music_src/A Bar Song Tab by Shaboozey - Rhythm Guitar.pdf"
+    shaboozey_gp = "music_src/Shaboozey-A Bar Song-08-23-2026.gp"
+    if os.path.exists(shaboozey_pdf):
+        s_pdf_data = pdf_extractor.parse_music_pdf(shaboozey_pdf)
+        assert s_pdf_data["metadata"]["title"] == "A Bar Song", f"Expected 'A Bar Song', got {s_pdf_data['metadata']['title']}"
+        assert s_pdf_data["metadata"]["artist"] == "Shaboozey", f"Expected 'Shaboozey', got {s_pdf_data['metadata']['artist']}"
+        assert s_pdf_data["metadata"]["key"] in ["F#m", "A"], f"Expected F#m or A, got {s_pdf_data['metadata']['key']}"
+        assert len(s_pdf_data["structure"]) >= 5, f"Expected at least 5 sections, got {len(s_pdf_data['structure'])}"
+        print(f"✅ Shaboozey PDF parsed: Title='{s_pdf_data['metadata']['title']}', Artist='{s_pdf_data['metadata']['artist']}', Key={s_pdf_data['metadata']['key']}, Sections={len(s_pdf_data['structure'])}")
+
+        import ums_builder
+        # Test PDF-only synthesis
+        ums_pdf_only = ums_builder.build_ums_from_pdf_sources(s_pdf_data)
+        assert ums_pdf_only["canonical"]["title"] == "A Bar Song"
+        total_m = sum(len(b["measures"]) for b in ums_pdf_only["structure"])
+        assert total_m == 58, f"Expected 58 bars, got {total_m}"
+        print(f"✅ Shaboozey PDF-Only UMS Synthesized: {total_m} bars, {len(ums_pdf_only['canonical']['chords_detected'])} chords detected")
+
+        # Test GP + PDF fusion
+        if os.path.exists(shaboozey_gp):
+            s_gp = GuitarProScore.from_file(shaboozey_gp)
+            ums_fused = ums_builder.build_complete_ums(s_gp, s_pdf_data)
+            assert ums_fused is not None
+            fused_bars = sum(len(b["measures"]) for b in ums_fused["structure"])
+            assert fused_bars == 58
+            measures_with_lyrics = sum(1 for b in ums_fused["structure"] for m in b["measures"] for ev in m["musical_events"] if ev["layer_a"].get("lyrics"))
+            assert measures_with_lyrics > 30, f"Expected >30 bars with lyrics, got {measures_with_lyrics}"
+            print(f"✅ Shaboozey GP + PDF Fused UMS: {fused_bars} bars, {measures_with_lyrics} bars with lyrics aligned!")
 
     print("\n================================================================")
     print("   ALL TESTS PASSED SUCCESSFULLY! 🎯")

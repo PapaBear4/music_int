@@ -70,22 +70,38 @@ export function detectDiscrepancies(gpScore, chordDoc = null, vocalDoc = null) {
     const pdfCapo = pdfMeta.capo !== undefined ? pdfMeta.capo : 0;
     const pdfTempo = pdfMeta.tempo_bpm || null;
 
-    if (pdfKey && gpMeta.key && pdfKey !== gpMeta.key) {
+    const vocalMeta = vocalDoc?.metadata || {};
+    const vocalKey = vocalMeta.key || null;
+    const vocalTempo = vocalMeta.tempo_bpm || null;
+
+    // Key signature discrepancy across sources
+    const keyCandidates = {};
+    if (gpMeta.key) keyCandidates.guitar_pro = gpMeta.key;
+    if (pdfKey) keyCandidates.chord_sheet_pdf = pdfKey;
+    if (vocalKey) keyCandidates.vocal_score_pdf = vocalKey;
+
+    const uniqueKeys = Array.from(new Set(Object.values(keyCandidates)));
+    if (uniqueKeys.length > 1) {
+        const isRelative = (uniqueKeys.includes("F#m") && uniqueKeys.includes("A")) ||
+                           (uniqueKeys.includes("Em") && uniqueKeys.includes("G")) ||
+                           (uniqueKeys.includes("Am") && uniqueKeys.includes("C")) ||
+                           (uniqueKeys.includes("Bm") && uniqueKeys.includes("D"));
         discrepancies.push(new Discrepancy({
             conflictId: `conf_${confCounter++}`,
             conflictType: "capo_key_offset",
-            severity: "medium",
+            severity: isRelative ? "low" : "medium",
             measureNumber: 1,
             beatDivision: 1.0,
             sectionName: "Global",
-            description: `Key signature mismatch: GP reports ${gpMeta.key}, PDF reports ${pdfKey}.`,
-            candidates: {
-                guitar_pro: gpMeta.key,
-                chord_sheet_pdf: pdfKey
-            },
-            proposedResolution: pdfKey,
-            musicalRationale: "Lead sheet keys are transcribed to match recorded concert pitch.",
-            confidence: 0.85
+            description: isRelative
+                ? `Key signature enharmonic/relative notation difference: Sources indicate ${uniqueKeys.join(" vs ")} (relative major/minor sharing the same key signature).`
+                : `Key signature mismatch across sources: ${Object.entries(keyCandidates).map(([s, k]) => `${s}: ${k}`).join(", ")}.`,
+            candidates: keyCandidates,
+            proposedResolution: pdfKey || gpMeta.key || vocalKey,
+            musicalRationale: isRelative
+                ? `Relative major and minor keys share the identical key signature (e.g. F# minor and A major both have 3 sharps: F#, C#, G#). Selected tonic pitch center.`
+                : "Lead sheet concert pitch prioritized for harmonic lead instruments.",
+            confidence: 0.90
         }));
     }
 
@@ -108,22 +124,43 @@ export function detectDiscrepancies(gpScore, chordDoc = null, vocalDoc = null) {
         }));
     }
 
-    if (pdfTempo && Math.abs(pdfTempo - gpTempo) > 5) {
+    // Comprehensive Tempo & Metric Subdivision Conflict Detection
+    const tempoCandidates = {
+        guitar_pro: `${gpTempo} BPM`
+    };
+    if (pdfTempo) tempoCandidates.chord_sheet_pdf = `${pdfTempo} BPM`;
+    if (vocalTempo) tempoCandidates.vocal_score_pdf = `${vocalTempo} BPM`;
+
+    const allTempos = [
+        { src: "guitar_pro", bpm: gpTempo },
+        ...(pdfTempo ? [{ src: "chord_sheet_pdf", bpm: pdfTempo }] : []),
+        ...(vocalTempo ? [{ src: "vocal_score_pdf", bpm: vocalTempo }] : [])
+    ];
+
+    const distinctTempos = Array.from(new Set(allTempos.map(t => t.bpm))).filter(Boolean);
+    const hasTempoConflict = distinctTempos.some(t => Math.abs(t - gpTempo) > 5);
+
+    if (hasTempoConflict) {
+        const isCutTime = distinctTempos.some(t1 => distinctTempos.some(t2 => Math.abs(t1 / t2 - 2.0) < 0.1 || Math.abs(t1 / t2 - 0.5) < 0.1));
+        const highestBpm = Math.max(...distinctTempos);
+        const lowestBpm = Math.min(...distinctTempos);
+
         discrepancies.push(new Discrepancy({
             conflictId: `conf_${confCounter++}`,
             conflictType: "meter_tempo",
-            severity: "low",
+            severity: isCutTime ? "high" : "medium",
             measureNumber: 1,
             beatDivision: 1.0,
             sectionName: "Global",
-            description: `Tempo indication difference: GP playback is ${gpTempo} BPM, PDF suggests ${pdfTempo} BPM.`,
-            candidates: {
-                guitar_pro: `${gpTempo} BPM`,
-                chord_sheet_pdf: `${pdfTempo} BPM`
-            },
-            proposedResolution: gpTempo,
-            musicalRationale: "GP tempo is quantized for audio playback; PDF tempo is approximate.",
-            confidence: 0.88
+            description: isCutTime
+                ? `Metric subdivision difference: Vocal score is notated in cut-time (${highestBpm} BPM), while Guitar Pro / Rhythm chart is notated at ${lowestBpm} BPM.`
+                : `Tempo indication mismatch: Sources indicate ${distinctTempos.map(b => `${b} BPM`).join(" vs ")}.`,
+            candidates: tempoCandidates,
+            proposedResolution: `${gpTempo} BPM`,
+            musicalRationale: isCutTime
+                ? `Vocal score uses double-time metric feel (${highestBpm} BPM) with 2 measures per rhythm bar. Reconciling canonical timeline backbone to ${gpTempo} BPM with synchronized 2:1 metric mapping.`
+                : `Quantized playback tempo (${gpTempo} BPM) selected for audio-synchronized timeline backbone.`,
+            confidence: 0.92
         }));
     }
 

@@ -164,5 +164,10 @@ class SourceManager:
     def get_sources_by_role(self, role: str) -> List[SourceDocument]:
         return [s for s in self.sources.values() if s.role == role]
 
+    def clear(self) -> None:
+        self.sources.clear()
+        self.primary_rhythm_source_id = None
+
     def to_manifest(self, include_raw: bool = False) -> List[Dict[str, Any]]:
         return [s.to_manifest_entry(include_raw=include_raw) for s in self.sources.values()]
+

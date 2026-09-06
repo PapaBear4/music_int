@@ -26,6 +26,9 @@ export class LlmClient {
         this.authorityLevel = localStorage.getItem("ums_authority_level") || "balanced"; // 'advisory', 'balanced', 'autonomous'
         this.telemetryHistory = [];
         this.onTraceCallback = null;
+        this.lastFailedRequest = null;
+        this.lastError = null;
+        this.usedFallback = false;
     }
 
     saveConfig({ provider, apiKey, model, temperature, serviceTier, authorityLevel }) {
@@ -55,13 +58,25 @@ export class LlmClient {
         }
     }
 
+    setModel(modelName) {
+        this.model = modelName;
+        localStorage.setItem("ums_llm_model", modelName);
+    }
+
+    clearTelemetry() {
+        this.telemetryHistory = [];
+        this.lastFailedRequest = null;
+        this.lastError = null;
+        this.usedFallback = false;
+    }
+
     setTraceListener(callback) {
         this.onTraceCallback = callback;
     }
 
-    logTrace(message, type = "info") {
+    logTrace(message, type = "info", meta = {}) {
         if (this.onTraceCallback) {
-            this.onTraceCallback({ message, type, time: new Date().toLocaleTimeString() });
+            this.onTraceCallback({ message, type, time: new Date().toLocaleTimeString(), ...meta });
         }
     }
 
@@ -79,7 +94,7 @@ export class LlmClient {
             const res = await fetch("https://openrouter.ai/api/v1/models", { headers });
             if (!res.ok) {
                 const errText = await res.text();
-                throw new Error(`OpenRouter HTTP ${res.status}: ${errText}`);
+                throw new Error(`OpenRouter HTTP ${res.status}: ${this.formatErrorMessage(errText)}`);
             }
             const data = await res.json();
             const models = (data.data || []).map(m => ({
@@ -88,43 +103,36 @@ export class LlmClient {
                 contextLength: m.context_length || 0,
                 description: m.description || "",
                 pricing: m.pricing || null
-            }));
+            })).sort((a, b) => a.name.localeCompare(b.name));
             this.logTrace(`Successfully discovered ${models.length} models from OpenRouter.`, "success");
             return models;
         } else if (prov === "gemini") {
-            if (!key) {
-                throw new Error("API Key required to list Google Gemini models. Please enter your Gemini API key.");
-            }
-            const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
-            const res = await fetch(url);
+            if (!key) throw new Error("API Key required to list Gemini models.");
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
             if (!res.ok) {
                 const errText = await res.text();
-                throw new Error(`Gemini HTTP ${res.status}: ${errText}`);
+                throw new Error(`Gemini HTTP ${res.status}: ${this.formatErrorMessage(errText)}`);
             }
             const data = await res.json();
             const models = (data.models || [])
                 .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
-                .map(m => {
-                    const cleanId = m.name.replace("models/", "");
-                    return {
-                        id: cleanId,
-                        name: m.displayName || cleanId,
-                        contextLength: m.inputTokenLimit || 0,
-                        description: m.description || ""
-                    };
-                });
+                .map(m => ({
+                    id: m.name.replace("models/", ""),
+                    name: m.displayName || m.name,
+                    contextLength: m.inputTokenLimit || 0,
+                    description: m.description || ""
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name));
             this.logTrace(`Successfully discovered ${models.length} models from Google Gemini.`, "success");
             return models;
         } else if (prov === "openai") {
-            if (!key) {
-                throw new Error("API Key required to list OpenAI models. Please enter your OpenAI API key.");
-            }
+            if (!key) throw new Error("API Key required to list OpenAI models.");
             const res = await fetch("https://api.openai.com/v1/models", {
                 headers: { "Authorization": `Bearer ${key}` }
             });
             if (!res.ok) {
                 const errText = await res.text();
-                throw new Error(`OpenAI HTTP ${res.status}: ${errText}`);
+                throw new Error(`OpenAI HTTP ${res.status}: ${this.formatErrorMessage(errText)}`);
             }
             const data = await res.json();
             const models = (data.data || [])
@@ -143,27 +151,64 @@ export class LlmClient {
         }
     }
 
-    async reconcileConflicts(systemInstruction, userPayload) {
+    formatErrorMessage(rawErrorText) {
+        if (!rawErrorText) return "Unknown server error";
+        try {
+            const parsed = JSON.parse(rawErrorText);
+            if (parsed.error?.message) return parsed.error.message;
+            if (parsed.message) return parsed.message;
+        } catch (e) {
+            // not json
+        }
+        return rawErrorText.length > 200 ? rawErrorText.slice(0, 200) + "..." : rawErrorText;
+    }
+
+    async reconcileConflicts(systemInstruction, userPayload, isRetry = false) {
+        this.lastFailedRequest = { systemInstruction, userPayload };
+
         if (!this.apiKey) {
+            this.usedFallback = true;
+            this.lastError = null;
             this.logTrace("No API Key configured. Running in Built-in Music Theory Cognitive Simulator mode.", "warning");
             await new Promise(r => setTimeout(r, 600)); // realistic UX feel
             return this.simulateReconciliation(userPayload);
         }
 
         const startTime = performance.now();
-        this.logTrace(`Connecting to ${this.provider.toUpperCase()} (${this.model})...`, "info");
+        this.logTrace(`${isRetry ? "🔄 Retrying connection" : "Connecting"} to ${this.provider.toUpperCase()} (${this.model})...`, "info");
 
         try {
             let result;
-            if (this.provider === "openrouter") {
-                result = await this.callOpenRouter(systemInstruction, userPayload);
-            } else if (this.provider === "gemini") {
-                result = await this.callGemini(systemInstruction, userPayload);
-            } else {
-                result = await this.callOpenAi(systemInstruction, userPayload);
+            try {
+                if (this.provider === "openrouter") {
+                    result = await this.callOpenRouter(systemInstruction, userPayload);
+                } else if (this.provider === "gemini") {
+                    result = await this.callGemini(systemInstruction, userPayload);
+                } else {
+                    result = await this.callOpenAi(systemInstruction, userPayload);
+                }
+            } catch (initialErr) {
+                const errMsg = initialErr.message.toLowerCase();
+                const isOverloaded = errMsg.includes("503") || errMsg.includes("429") || errMsg.includes("high demand") || errMsg.includes("quota") || errMsg.includes("rate limit") || errMsg.includes("unavailable");
+                
+                if (isOverloaded && !isRetry) {
+                    this.logTrace(`⚠️ Provider high demand detected (503/429). Auto-retrying in 2.0s...`, "warning");
+                    await new Promise(r => setTimeout(r, 2000));
+                    if (this.provider === "openrouter") {
+                        result = await this.callOpenRouter(systemInstruction, userPayload);
+                    } else if (this.provider === "gemini") {
+                        result = await this.callGemini(systemInstruction, userPayload);
+                    } else {
+                        result = await this.callOpenAi(systemInstruction, userPayload);
+                    }
+                } else {
+                    throw initialErr;
+                }
             }
 
             const latencyMs = Math.round(performance.now() - startTime);
+            this.usedFallback = false;
+            this.lastError = null;
             this.logTrace(`LLM Arbitration completed in ${latencyMs}ms (${result.usage?.total_tokens || "N/A"} tokens).`, "success");
 
             const telemetry = new LlmTelemetry({
@@ -178,7 +223,9 @@ export class LlmClient {
             return result.data;
         } catch (err) {
             const latencyMs = Math.round(performance.now() - startTime);
-            this.logTrace(`LLM Call Failed (${err.message}). Falling back to cognitive simulator...`, "error");
+            this.usedFallback = true;
+            this.lastError = err.message;
+            this.logTrace(`LLM Call Failed (${err.message}). Falling back to cognitive simulator...`, "error", { canRetry: true, error: err.message });
 
             const telemetry = new LlmTelemetry({
                 provider: this.provider,
@@ -192,6 +239,17 @@ export class LlmClient {
 
             return this.simulateReconciliation(userPayload);
         }
+    }
+
+    async retryReconciliation() {
+        if (!this.lastFailedRequest) {
+            throw new Error("No previous reconciliation request to retry.");
+        }
+        return this.reconcileConflicts(
+            this.lastFailedRequest.systemInstruction,
+            this.lastFailedRequest.userPayload,
+            true
+        );
     }
 
     async callOpenRouter(systemPrompt, userPayload) {
@@ -215,7 +273,7 @@ export class LlmClient {
 
         if (!response.ok) {
             const errBody = await response.text();
-            throw new Error(`OpenRouter HTTP ${response.status}: ${errBody}`);
+            throw new Error(`OpenRouter HTTP ${response.status}: ${this.formatErrorMessage(errBody)}`);
         }
 
         const data = await response.json();
@@ -225,31 +283,44 @@ export class LlmClient {
     }
 
     async callGemini(systemPrompt, userPayload) {
-        const cleanModel = this.model.replace("google/", "");
+        const cleanModel = this.model.replace("google/", "").replace("models/", "");
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${this.apiKey}`;
+        
+        const genConfig = {
+            temperature: this.temperature,
+            responseMimeType: "application/json"
+        };
+
+        if (cleanModel.includes("3.7") || cleanModel.includes("3.")) {
+            genConfig.thinkingConfig = { thinkingLevel: "HIGH" };
+        } else if (cleanModel.includes("thinking") || cleanModel.includes("2.5") || cleanModel.includes("2.0-flash-thinking")) {
+            genConfig.thinkingConfig = { thinkingBudget: 2048 };
+        }
+
         const response = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 contents: [{ parts: [{ text: JSON.stringify(userPayload, null, 2) }] }],
-                generationConfig: {
-                    temperature: this.temperature,
-                    responseMimeType: "application/json"
-                }
+                generationConfig: genConfig
             })
         });
 
         if (!response.ok) {
             const errBody = await response.text();
-            throw new Error(`Gemini HTTP ${response.status}: ${errBody}`);
+            throw new Error(`Gemini HTTP ${response.status}: ${this.formatErrorMessage(errBody)}`);
         }
 
         const data = await response.json();
-        const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        const candidate = data.candidates?.[0];
+        const parts = candidate?.content?.parts || [];
+        const answerParts = parts.filter(p => !p.thought).map(p => p.text || "");
+        const content = answerParts.join("") || "{}";
         const parsed = this.extractJson(content);
         return { data: parsed, usage: data.usageMetadata || {} };
     }
+
 
     async callOpenAi(systemPrompt, userPayload) {
         const url = "https://api.openai.com/v1/chat/completions";
@@ -272,7 +343,7 @@ export class LlmClient {
 
         if (!response.ok) {
             const errBody = await response.text();
-            throw new Error(`OpenAI HTTP ${response.status}: ${errBody}`);
+            throw new Error(`OpenAI HTTP ${response.status}: ${this.formatErrorMessage(errBody)}`);
         }
 
         const data = await response.json();

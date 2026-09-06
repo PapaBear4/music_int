@@ -132,12 +132,28 @@ class LlmClient:
 
         start_time = time.time()
         try:
-            if self.provider == "openrouter":
-                result = self._call_openrouter(system_instruction, user_payload, on_progress)
-            elif self.provider == "gemini":
-                result = self._call_gemini(system_instruction, user_payload, on_progress)
-            else:
-                result = self._call_openai_compatible(system_instruction, user_payload, on_progress)
+            try:
+                if self.provider == "openrouter":
+                    result = self._call_openrouter(system_instruction, user_payload, on_progress)
+                elif self.provider == "gemini":
+                    result = self._call_gemini(system_instruction, user_payload, on_progress)
+                else:
+                    result = self._call_openai_compatible(system_instruction, user_payload, on_progress)
+            except Exception as initial_err:
+                err_str = str(initial_err).lower()
+                is_overloaded = any(k in err_str for k in ["503", "429", "high demand", "quota", "rate limit", "unavailable"])
+                if is_overloaded:
+                    if on_progress:
+                        on_progress(f"⚠️ High demand / 503 detected. Auto-retrying in 2.0s...")
+                    time.sleep(2.0)
+                    if self.provider == "openrouter":
+                        result = self._call_openrouter(system_instruction, user_payload, on_progress)
+                    elif self.provider == "gemini":
+                        result = self._call_gemini(system_instruction, user_payload, on_progress)
+                    else:
+                        result = self._call_openai_compatible(system_instruction, user_payload, on_progress)
+                else:
+                    raise initial_err
 
             latency = (time.time() - start_time) * 1000
             self.telemetry_history.append(LlmTelemetry(
@@ -188,23 +204,37 @@ class LlmClient:
             return {"data": parsed_json, "usage": data.get("usage", {})}
 
     def _call_gemini(self, system_prompt: str, user_payload: Dict[str, Any], on_progress) -> Dict[str, Any]:
-        model_name = self.model.replace("google/", "")
+        model_name = self.model.replace("google/", "").replace("models/", "")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
+        
+        gen_config = {
+            "temperature": self.temperature,
+            "responseMimeType": "application/json"
+        }
+        
+        # Apply thinkingConfig only if supported, adhering to single-field rule
+        if "3.7" in model_name or "3." in model_name:
+            gen_config["thinkingConfig"] = {"thinkingLevel": "HIGH"}
+        elif any(k in model_name for k in ["thinking", "2.5", "2.0-flash-thinking"]):
+            gen_config["thinkingConfig"] = {"thinkingBudget": 2048}
+
         body = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"parts": [{"text": json.dumps(user_payload, indent=2)}]}],
-            "generationConfig": {
-                "temperature": self.temperature,
-                "responseMimeType": "application/json"
-            }
+            "generationConfig": gen_config
         }
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            content = data["candidates"][0]["content"]["parts"][0]["text"]
+            candidate = data.get("candidates", [{}])[0]
+            parts = candidate.get("content", {}).get("parts", [])
+            # Filter non-thought parts for JSON answer
+            answer_parts = [p.get("text", "") for p in parts if not p.get("thought")]
+            content = "".join(answer_parts) if answer_parts else "{}"
             parsed_json = self._extract_json(content)
             return {"data": parsed_json, "usage": data.get("usageMetadata", {})}
+
 
     def _call_openai_compatible(self, system_prompt: str, user_payload: Dict[str, Any], on_progress) -> Dict[str, Any]:
         url = "https://api.openai.com/v1/chat/completions"

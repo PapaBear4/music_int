@@ -76,22 +76,36 @@ def detect_discrepancies(
     pdf_capo = pdf_meta.get("capo", 0)
     pdf_tempo = pdf_meta.get("tempo_bpm")
 
-    if pdf_key and gp_meta.get("key") and pdf_key != gp_meta.get("key"):
+    vocal_meta = vocal_doc.get("metadata", {}) if vocal_doc else {}
+    vocal_key = vocal_meta.get("key")
+    vocal_tempo = vocal_meta.get("tempo_bpm")
+
+    key_candidates = {}
+    if gp_meta.get("key"):
+        key_candidates["guitar_pro"] = gp_meta.get("key")
+    if pdf_key:
+        key_candidates["chord_sheet_pdf"] = pdf_key
+    if vocal_key:
+        key_candidates["vocal_score_pdf"] = vocal_key
+
+    unique_keys = list(set(key_candidates.values()))
+    if len(unique_keys) > 1:
+        is_relative = (("F#m" in unique_keys and "A" in unique_keys) or
+                       ("Em" in unique_keys and "G" in unique_keys) or
+                       ("Am" in unique_keys and "C" in unique_keys) or
+                       ("Bm" in unique_keys and "D" in unique_keys))
         discrepancies.append(Discrepancy(
             conflict_id=f"conf_{conf_counter}",
             conflict_type="capo_key_offset",
-            severity="medium",
+            severity="low" if is_relative else "medium",
             measure_number=1,
             beat_division=1.0,
             section_name="Global",
-            description=f"Key signature mismatch: GP reports {gp_meta.get('key')}, PDF lead sheet reports {pdf_key}.",
-            candidates={
-                "guitar_pro": gp_meta.get("key"),
-                "chord_sheet_pdf": pdf_key
-            },
-            proposed_resolution=pdf_key,
-            musical_rationale="Lead sheet keys are typically transcribed to match recorded concert pitch.",
-            confidence=0.85
+            description=f"Key signature relative/enharmonic difference: Sources indicate {' vs '.join(unique_keys)}." if is_relative else f"Key signature mismatch: {key_candidates}.",
+            candidates=key_candidates,
+            proposed_resolution=pdf_key or gp_meta.get("key") or vocal_key,
+            musical_rationale="Relative major and minor keys share the identical key signature (e.g. F# minor and A major both have 3 sharps). Selected tonic pitch center." if is_relative else "Lead sheet keys are typically transcribed to match recorded concert pitch.",
+            confidence=0.90
         ))
         conf_counter += 1
 
@@ -114,22 +128,41 @@ def detect_discrepancies(
         ))
         conf_counter += 1
 
-    if pdf_tempo and abs(pdf_tempo - gp_tempo) > 5:
+    # Comprehensive Tempo & Metric Subdivision Conflict Detection
+    tempo_candidates = {
+        "guitar_pro": f"{gp_tempo} BPM"
+    }
+    if pdf_tempo:
+        tempo_candidates["chord_sheet_pdf"] = f"{pdf_tempo} BPM"
+    if vocal_tempo:
+        tempo_candidates["vocal_score_pdf"] = f"{vocal_tempo} BPM"
+
+    all_tempos = [gp_tempo]
+    if pdf_tempo:
+        all_tempos.append(pdf_tempo)
+    if vocal_tempo:
+        all_tempos.append(vocal_tempo)
+
+    distinct_tempos = list(set(all_tempos))
+    has_tempo_conflict = any(abs(t - gp_tempo) > 5 for t in distinct_tempos)
+
+    if has_tempo_conflict:
+        is_cut_time = any(abs(t1 / t2 - 2.0) < 0.1 or abs(t1 / t2 - 0.5) < 0.1 for t1 in distinct_tempos for t2 in distinct_tempos if t1 != t2)
+        highest_bpm = max(distinct_tempos)
+        lowest_bpm = min(distinct_tempos)
+
         discrepancies.append(Discrepancy(
             conflict_id=f"conf_{conf_counter}",
             conflict_type="meter_tempo",
-            severity="low",
+            severity="high" if is_cut_time else "medium",
             measure_number=1,
             beat_division=1.0,
             section_name="Global",
-            description=f"Tempo indication difference: GP playback is {gp_tempo} BPM, PDF suggests {pdf_tempo} BPM.",
-            candidates={
-                "guitar_pro": f"{gp_tempo} BPM",
-                "chord_sheet_pdf": f"{pdf_tempo} BPM"
-            },
-            proposed_resolution=gp_tempo,
-            musical_rationale="GP tempo is quantized for audio playback; PDF tempo is often approximate.",
-            confidence=0.88
+            description=f"Metric subdivision difference: Vocal score is notated in cut-time ({highest_bpm} BPM), while Guitar Pro / Rhythm chart is notated at {lowest_bpm} BPM." if is_cut_time else f"Tempo indication mismatch: Sources indicate {' vs '.join(f'{b} BPM' for b in distinct_tempos)}.",
+            candidates=tempo_candidates,
+            proposed_resolution=f"{gp_tempo} BPM",
+            musical_rationale=f"Vocal score uses double-time metric feel ({highest_bpm} BPM) with 2 measures per rhythm bar. Reconciling canonical timeline backbone to {gp_tempo} BPM with synchronized 2:1 metric mapping." if is_cut_time else "Quantized playback tempo selected for audio-synchronized timeline backbone.",
+            confidence=0.92
         ))
         conf_counter += 1
 

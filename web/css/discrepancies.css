@@ -528,6 +528,12 @@
     color: var(--text-muted);
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     user-select: none;
+    cursor: pointer;
+}
+
+.ai-status-pill:hover {
+    transform: translateY(-1px);
+    opacity: 1;
 }
 
 .ai-status-pill.idle {
@@ -660,4 +666,207 @@
 @keyframes gradientShift {
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }
+}
+
+/* AI Status Pill Warning & Error States */
+.ai-status-pill.warning {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.5);
+    color: #d97706;
+    cursor: pointer;
+    animation: ai-warn-pulse 2s infinite ease-in-out;
+}
+
+.ai-status-pill.warning:hover {
+    background: rgba(245, 158, 11, 0.22);
+    border-color: #d97706;
+}
+
+.ai-status-pill.error {
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #dc2626;
+    cursor: pointer;
+}
+
+@keyframes ai-warn-pulse {
+    0%, 100% {
+        box-shadow: 0 0 4px rgba(245, 158, 11, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+    }
+}
+
+/* AI Fallback & Retry Alert Banner in Discrepancy HUD */
+.ai-fallback-banner {
+    background: linear-gradient(135deg, rgba(254, 243, 199, 0.8) 0%, rgba(254, 215, 170, 0.6) 100%);
+    border: 1.5px solid #f59e0b;
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5);
+    margin-bottom: var(--space-4);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    animation: fadeIn 0.25s ease-out;
+}
+
+body.theme-nordic .ai-fallback-banner,
+body.theme-mono .ai-fallback-banner {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.ai-fallback-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.ai-fallback-title-group {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    flex: 1;
+    min-width: 260px;
+}
+
+.ai-fallback-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.ai-fallback-title {
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #92400e;
+    margin: 0 0 4px 0;
+}
+
+body.theme-nordic .ai-fallback-title,
+body.theme-mono .ai-fallback-title {
+    color: #fbbf24;
+}
+
+.ai-fallback-desc {
+    font-size: 0.8rem;
+    color: #78350f;
+    margin: 0;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+body.theme-nordic .ai-fallback-desc,
+body.theme-mono .ai-fallback-desc {
+    color: #fde68a;
+}
+
+.ai-fallback-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.ai-fallback-quick-models {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding-top: var(--space-2);
+    border-top: 1px dashed rgba(245, 158, 11, 0.35);
+}
+
+.quick-model-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #78350f;
+}
+
+body.theme-nordic .quick-model-label,
+body.theme-mono .quick-model-label {
+    color: #fde68a;
+}
+
+.quick-switch-btn {
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    background: var(--bg-surface);
+    color: var(--text-main);
+}
+
+.quick-switch-btn:hover {
+    background: var(--accent-primary);
+    color: #ffffff;
+    border-color: var(--accent-primary);
+}
+
+/* Inline Retry Button inside Live Traces Stream */
+.trace-entry .btn-trace-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-main);
+    background: var(--bg-surface);
+    color: var(--text-main);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.trace-entry .btn-trace-retry:hover {
+    background: var(--accent-primary);
+    color: #ffffff;
+    border-color: var(--accent-primary);
+    transform: scale(1.04);
+}
+
+/* Actionable Toast Styling */
+.toast.toast-action {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 14px;
+    max-width: 380px;
+}
+
+.toast-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.toast-action-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.toast-action-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    border-color: #ffffff;
+}
+
+.toast-action-btn.primary {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: #ffffff;
+}
+
+.toast-action-btn.primary:hover {
+    background: #f1f5f9;
 }
